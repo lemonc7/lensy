@@ -1,0 +1,254 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO images (\n                public_id,\n                storage_key,\n                thumbnail_key,\n                original_name,\n                source_mime,\n                source_size,\n                stored_size,\n                thumbnail_size,\n                width,\n                height,\n                thumbnail_width,\n                thumbnail_height,\n                source_hash,\n                content_hash,\n                pixel_hash,\n                created_at,\n                updated_at\n            )\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n            RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "public_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "public_id"
+          }
+        }
+      },
+      {
+        "name": "storage_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "storage_key"
+          }
+        }
+      },
+      {
+        "name": "thumbnail_key",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "thumbnail_key"
+          }
+        }
+      },
+      {
+        "name": "original_name",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "original_name"
+          }
+        }
+      },
+      {
+        "name": "source_mime",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "source_mime"
+          }
+        }
+      },
+      {
+        "name": "source_size",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "source_size"
+          }
+        }
+      },
+      {
+        "name": "stored_mime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "stored_mime"
+          }
+        }
+      },
+      {
+        "name": "stored_size",
+        "ordinal": 8,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "stored_size"
+          }
+        }
+      },
+      {
+        "name": "thumbnail_size",
+        "ordinal": 9,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "thumbnail_size"
+          }
+        }
+      },
+      {
+        "name": "width",
+        "ordinal": 10,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "width"
+          }
+        }
+      },
+      {
+        "name": "height",
+        "ordinal": 11,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "height"
+          }
+        }
+      },
+      {
+        "name": "thumbnail_width",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "thumbnail_width"
+          }
+        }
+      },
+      {
+        "name": "thumbnail_height",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "thumbnail_height"
+          }
+        }
+      },
+      {
+        "name": "source_hash",
+        "ordinal": 14,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "source_hash"
+          }
+        }
+      },
+      {
+        "name": "content_hash",
+        "ordinal": 15,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "content_hash"
+          }
+        }
+      },
+      {
+        "name": "pixel_hash",
+        "ordinal": 16,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "pixel_hash"
+          }
+        }
+      },
+      {
+        "name": "created_at",
+        "ordinal": 17,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 18,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 19,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 17
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "45918facea07c663b855ee1540fc21daa56f12dd5c6abe5ab3872d876a78020a"
+}
