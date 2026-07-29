@@ -45,4 +45,18 @@ impl FileStore {
         tokio::fs::rename(temporary_path, &destination).await?;
         Ok(destination)
     }
+
+    pub fn processing_root(&self) -> PathBuf {
+        self.root.join("tmp").join("processed")
+    }
+
+    pub async fn remove(&self, storage_key: &str) -> io::Result<bool> {
+        let path = self.resolve(storage_key)?;
+
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
 }
