@@ -1,0 +1,10 @@
+services:
+  lensy:
+    image: lemonc7/lensy:latest
+    container_name: lensy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
