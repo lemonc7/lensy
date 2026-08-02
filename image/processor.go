@@ -21,12 +21,14 @@ var (
 	ErrTooManyPixels     = errors.New("图片像素数超过限制")
 	ErrUnsupportedFormat = errors.New("不支持的图片格式")
 	ErrAnimatedWebP      = errors.New("暂不支持动态 WebP")
+	ErrInvalidImage      = errors.New("图片内容无效或已损坏")
 )
 
 type Processor struct {
 	config config.ImageConfig
 }
 
+// Result 同时包含正式 WebP、缩略图以及写入数据库所需的元数据。
 type Result struct {
 	WebP          []byte
 	ThumbnailWebP []byte
@@ -36,8 +38,8 @@ type Result struct {
 	ThumbnailWidth  int64
 	ThumbnailHeight int64
 
-	ContentHash string
-	PixelHash   string
+	ContentHash string // 最终 WebP 字节哈希，用于校验磁盘文件完整性
+	PixelHash   string // 方向归一化后的像素哈希，用于图片查重
 }
 
 func NewProcessor(cfg config.ImageConfig) (*Processor, error) {
@@ -48,6 +50,7 @@ func NewProcessor(cfg config.ImageConfig) (*Processor, error) {
 }
 
 func (p *Processor) Process(source io.Reader) (Result, error) {
+	// 多读一个字节即可判断是否超限，避免无上限地把请求内容读入内存。
 	data, err := io.ReadAll(io.LimitReader(source, p.config.MaxUploadSize+1))
 	if err != nil {
 		return Result{}, fmt.Errorf("读取上传图片: %w", err)
@@ -56,9 +59,10 @@ func (p *Processor) Process(source io.Reader) (Result, error) {
 		return Result{}, ErrTooLarge
 	}
 
+	// 完整解码前先读取尺寸，防止尺寸极大的压缩图片耗尽内存。
 	imageConfig, format, err := img.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		return Result{}, fmt.Errorf("读取图片信息: %w", err)
+		return Result{}, fmt.Errorf("%w: 读取图片信息失败: %v", ErrInvalidImage, err)
 	}
 	if err := validateFormat(format); err != nil {
 		return Result{}, err
@@ -66,27 +70,33 @@ func (p *Processor) Process(source io.Reader) (Result, error) {
 	if imageConfig.Width <= 0 || imageConfig.Height <= 0 {
 		return Result{}, errors.New("图片尺寸无效")
 	}
-	pixels := int64(imageConfig.Width) * int64(imageConfig.Height)
-	if pixels > p.config.MaxPixels {
+	width := int64(imageConfig.Width)
+	height := int64(imageConfig.Height)
+	// 使用除法比较，避免恶意构造的超大尺寸在相乘时发生 int64 溢出。
+	if width > p.config.MaxPixels/height {
 		return Result{}, ErrTooManyPixels
 	}
 
 	if format == "webp" {
+		// 当前只处理静态图片，避免上传动态 WebP 后悄悄只保留其中一帧。
 		features, err := webp.GetFeatures(bytes.NewReader(data))
 		if err != nil {
-			return Result{}, fmt.Errorf("读取 WebP 信息: %w", err)
+			return Result{}, fmt.Errorf("%w: 读取 WebP 信息失败: %v", ErrInvalidImage, err)
 		}
 		if features.HasAnimation {
 			return Result{}, ErrAnimatedWebP
 		}
 	}
 
+	// 先应用 JPEG EXIF Orientation，再计算尺寸、缩略图和 PixelHash。
+	// 这样手机照片的显示方向会直接写进像素，输出 WebP 无需保留方向元数据。
 	decoded, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if err != nil {
-		return Result{}, fmt.Errorf("解码图片: %w", err)
+		return Result{}, fmt.Errorf("%w: 解码图片失败: %v", ErrInvalidImage, err)
 	}
 	normalized := imaging.Clone(decoded)
 	thumbnail := normalized
+	// 小图不放大；大图按最长边等比缩小，不做裁切。
 	if normalized.Bounds().Dx() > p.config.ThumbnailMaxEdge ||
 		normalized.Bounds().Dy() > p.config.ThumbnailMaxEdge {
 		thumbnail = imaging.Fit(
@@ -127,6 +137,7 @@ func validateFormat(format string) error {
 
 func encodeWebP(source img.Image, quality float32, method int) ([]byte, error) {
 	var output bytes.Buffer
+	// Photo 预设面向照片类内容，SharpYUV 能改善色彩边缘和文字附近的色度质量。
 	options := webp.OptionsForPreset(webp.PresetPhoto, quality)
 	options.Method = method
 	options.UseSharpYUV = true
@@ -143,6 +154,7 @@ func hash(data []byte) string {
 
 func pixelHash(source *img.NRGBA) string {
 	hasher := sha256.New()
+	// 把尺寸也加入哈希，避免不同宽高的图片仅凭像素字节产生歧义。
 	_ = binary.Write(hasher, binary.LittleEndian, uint32(source.Bounds().Dx()))
 	_ = binary.Write(hasher, binary.LittleEndian, uint32(source.Bounds().Dy()))
 	_, _ = hasher.Write(source.Pix)

@@ -1,0 +1,38 @@
+# 复制为同目录下的 config.yml 后按部署环境修改。
+server:
+  host: 127.0.0.1
+  port: 8080
+  # Docker 反向代理部署时填写外部地址，例如 https://img.example.com。
+  # 留空时根据当前请求的协议和 Host 生成图片链接。
+  public_url: ""
+  read_header_timeout: 5s
+  read_timeout: 30s
+  write_timeout: 60s
+  idle_timeout: 2m
+  shutdown_timeout: 15s
+  max_header_bytes: 1048576
+
+database:
+  max_open_conns: 4
+  max_idle_conns: 4
+  conn_max_lifetime: 0s
+  conn_max_idle_time: 0s
+  busy_timeout: 5s
+
+image:
+  # 字节数，默认限制为 20 MiB。
+  max_upload_size: 20971520
+  max_pixels: 40000000
+  quality: 82
+  thumbnail_quality: 75
+  method: 4
+  thumbnail_max_edge: 480
+
+auth:
+  # 生产环境建议通过 LENSY_SESSION_AUTH_KEY 提供，至少 32 字节。
+  session_auth_key: ""
+  # 生产环境建议通过 LENSY_SESSION_ENCRYPTION_KEY 提供，只能为 16、24 或 32 字节。
+  session_encryption_key: ""
+  session_ttl: 168h
+  # 使用 HTTPS 时必须改为 true。
+  secure_cookie: false

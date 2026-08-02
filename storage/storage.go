@@ -17,6 +17,7 @@ type Store struct {
 	tempDir string
 }
 
+// New 初始化正式目录，并清理上次进程异常退出遗留的临时文件。
 func New() (*Store, error) {
 	root, err := filepath.Abs(storageRoot)
 	if err != nil {
@@ -58,6 +59,7 @@ func (s *Store) SaveImage(
 	if err != nil {
 		return err
 	}
+	// publicID 理论上不会碰撞，这里的检查用于避免意外覆盖已有文件。
 	if err := ensureNotExists(imagePath); err != nil {
 		return err
 	}
@@ -65,6 +67,7 @@ func (s *Store) SaveImage(
 		return err
 	}
 
+	// 两份数据先完整写入临时目录，任意一步失败都会由 defer 清理。
 	temporaryImage, err := s.writeTemporary(imageData)
 	if err != nil {
 		return fmt.Errorf("写入临时 WebP: %w", err)
@@ -86,10 +89,12 @@ func (s *Store) SaveImage(
 	if err := os.MkdirAll(filepath.Dir(thumbnailPath), 0o755); err != nil {
 		return fmt.Errorf("创建缩略图目录: %w", err)
 	}
+	// 临时目录和正式目录位于同一个 data 根目录，rename 在同一文件系统内是原子的。
 	if err := os.Rename(temporaryImage, imagePath); err != nil {
 		return fmt.Errorf("保存 WebP: %w", err)
 	}
 	if err := os.Rename(temporaryThumbnail, thumbnailPath); err != nil {
+		// 第二次移动失败时撤销第一份文件，避免只留下原图而没有缩略图。
 		if removeErr := os.Remove(imagePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 			return errors.Join(
 				fmt.Errorf("保存缩略图: %w", err),
@@ -111,6 +116,7 @@ func (s *Store) RemoveImage(imageKey, thumbnailKey string) error {
 		return err
 	}
 
+	// 文件不存在也视为删除成功，使失败回滚和重复清理具备幂等性。
 	var removeErrors []error
 	for _, path := range []string{imagePath, thumbnailPath} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -144,6 +150,7 @@ func (s *Store) writeTemporary(data []byte) (path string, err error) {
 	if _, err := file.Write(data); err != nil {
 		return "", err
 	}
+	// Sync 成功后再转正，避免系统异常时留下内容尚未刷盘的正式文件。
 	if err := file.Sync(); err != nil {
 		return "", err
 	}
@@ -154,6 +161,7 @@ func (s *Store) writeTemporary(data []byte) (path string, err error) {
 }
 
 func (s *Store) resolve(key string) (string, error) {
+	// 只接受相对本地路径，拒绝绝对路径和 ../，防止访问 data 目录之外的文件。
 	if key == "." || !filepath.IsLocal(key) {
 		return "", ErrInvalidKey
 	}

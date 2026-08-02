@@ -6,12 +6,16 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("not found")
-	ErrRestoreConflict = errors.New("an active image with the same pixels already exists")
-	ErrInvalidInput    = errors.New("invalid input")
-	ErrInvalidToken    = errors.New("invalid API token")
-	ErrExpiredToken    = errors.New("API token has expired")
-	ErrRevokedToken    = errors.New("API token has been revoked")
+	ErrNotFound           = errors.New("未找到记录")
+	ErrRestoreConflict    = errors.New("已存在像素内容相同的有效图片")
+	ErrInvalidInput       = errors.New("输入参数无效")
+	ErrInvalidToken       = errors.New("API Token 无效")
+	ErrExpiredToken       = errors.New("API Token 已过期")
+	ErrRevokedToken       = errors.New("API Token 已撤销")
+	ErrInvalidCredentials = errors.New("用户名或密码错误")
+	ErrUserDisabled       = errors.New("用户已被禁用")
+	ErrUserExists         = errors.New("用户名已存在")
+	ErrAdminInitialized   = errors.New("管理员已初始化")
 )
 
 type RestoreConflictError struct {

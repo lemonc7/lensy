@@ -18,8 +18,11 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+// 数据库位置固定在应用数据目录中，启动时会自动创建父目录。
 const databasePath = "data/lensy.db"
 
+// New 创建连接池并在返回前完成数据库迁移。
+// 因此调用方拿到的 db 一定已经具备当前版本所需的表结构。
 func New(cfg config.DatabaseConfig) (*sql.DB, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("数据库配置无效: %w", err)
@@ -46,6 +49,7 @@ func New(cfg config.DatabaseConfig) (*sql.DB, error) {
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
+	// migrate 的 SQLite 驱动内部会 Ping 数据库，这里不再重复调用 db.Ping。
 	if err := migrateUp(db, databaseName); err != nil {
 		db.Close()
 		return nil, err
@@ -54,6 +58,7 @@ func New(cfg config.DatabaseConfig) (*sql.DB, error) {
 }
 
 func migrateUp(db *sql.DB, databaseName string) error {
+	// migration 被编译进二进制，部署时不需要额外复制 SQL 文件。
 	source, err := iofs.New(migrationFiles, "migrations")
 	if err != nil {
 		return fmt.Errorf("打开嵌入式迁移文件: %w", err)
