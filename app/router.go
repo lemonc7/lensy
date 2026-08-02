@@ -55,8 +55,6 @@ func NewRouter(auth *api.Auth, images *api.Images, tokens *api.APITokens, cfg co
 
 	authRoutes := e.Group("/api/auth")
 	authRoutes.Use(bodyLimit(64*1024, "认证请求内容超过大小限制"))
-	authRoutes.GET("/setup", auth.SetupStatus)
-	authRoutes.POST("/setup", auth.Setup, loginLimiter)
 	authRoutes.POST("/login", auth.Login, loginLimiter)
 	authRoutes.POST("/logout", auth.Logout)
 	authRoutes.GET("/me", auth.Me, auth.RequireLogin())

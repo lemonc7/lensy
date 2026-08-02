@@ -9,18 +9,13 @@ import (
 )
 
 type Querier interface {
-	CountUsers(ctx context.Context) (int64, error)
 	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
-	CreateFirstAdmin(ctx context.Context, arg CreateFirstAdminParams) (User, error)
 	CreateImage(ctx context.Context, arg CreateImageParams) (Image, error)
-	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	DeleteImagePermanently(ctx context.Context, publicID string) (Image, error)
 	GetAPITokenByHash(ctx context.Context, tokenHash string) (ApiToken, error)
 	GetActiveImageByPixelHash(ctx context.Context, pixelHash string) (Image, error)
 	GetActiveImageByPublicID(ctx context.Context, publicID string) (Image, error)
 	GetDeletedImageByPublicID(ctx context.Context, publicID string) (Image, error)
-	GetUserByID(ctx context.Context, id int64) (User, error)
-	GetUserByUsername(ctx context.Context, username string) (User, error)
 	ListAPITokens(ctx context.Context) ([]ApiToken, error)
 	ListActiveImages(ctx context.Context, limit int64) ([]Image, error)
 	ListActiveImagesAfter(ctx context.Context, arg ListActiveImagesAfterParams) ([]Image, error)
@@ -30,7 +25,6 @@ type Querier interface {
 	RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) (int64, error)
 	SoftDeleteImage(ctx context.Context, arg SoftDeleteImageParams) (int64, error)
 	TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) (int64, error)
-	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

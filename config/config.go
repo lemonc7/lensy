@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata"
+	"unicode/utf8"
 
 	"github.com/ilyakaznacheev/cleanenv"
 )
@@ -55,6 +57,8 @@ func (c Config) Validate() error {
 
 // AuthConfig 定义网页登录使用的加密 Cookie Session 参数。
 type AuthConfig struct {
+	Username             string        `yaml:"username" env:"LENSY_AUTH_USERNAME"`
+	PasswordHash         string        `yaml:"password_hash" env:"LENSY_AUTH_PASSWORD_HASH"`
 	SessionAuthKey       string        `yaml:"session_auth_key" env:"LENSY_SESSION_AUTH_KEY"`
 	SessionEncryptionKey string        `yaml:"session_encryption_key" env:"LENSY_SESSION_ENCRYPTION_KEY"`
 	SessionTTL           time.Duration `yaml:"session_ttl" env:"LENSY_SESSION_TTL" env-default:"168h"`
@@ -63,6 +67,13 @@ type AuthConfig struct {
 
 // Validate 校验 Session 签名、加密和有效期配置。
 func (c AuthConfig) Validate() error {
+	usernameLength := utf8.RuneCountInString(strings.TrimSpace(c.Username))
+	if usernameLength < 3 || usernameLength > 100 {
+		return errors.New("管理员用户名长度必须为 3 到 100 个字符")
+	}
+	if !strings.HasPrefix(c.PasswordHash, "$argon2id$") {
+		return errors.New("管理员密码哈希必须是 Argon2id PHC 格式")
+	}
 	if len(c.SessionAuthKey) < 32 {
 		return errors.New("Session 签名密钥不能少于 32 字节")
 	}
@@ -115,6 +126,7 @@ type ServerConfig struct {
 	Host              string        `yaml:"host" env:"LENSY_HOST" env-default:"127.0.0.1"`
 	Port              int           `yaml:"port" env:"LENSY_PORT" env-default:"8080"`
 	PublicURL         string        `yaml:"public_url" env:"LENSY_PUBLIC_URL"`
+	TZ                string        `yaml:"tz" env:"LENSY_TZ" env-default:"Asia/Shanghai"`
 	ReadHeaderTimeout time.Duration `yaml:"read_header_timeout" env:"LENSY_READ_HEADER_TIMEOUT" env-default:"5s"`
 	ReadTimeout       time.Duration `yaml:"read_timeout" env:"LENSY_READ_TIMEOUT" env-default:"30s"`
 	WriteTimeout      time.Duration `yaml:"write_timeout" env:"LENSY_WRITE_TIMEOUT" env-default:"60s"`
@@ -128,8 +140,24 @@ func (c ServerConfig) Address() string {
 	return net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 }
 
+// Location 返回服务器使用的时区。时区数据库已经编译进程序，可直接用于 scratch 镜像。
+func (c ServerConfig) Location() (*time.Location, error) {
+	tz := strings.TrimSpace(c.TZ)
+	if tz == "" {
+		return nil, errors.New("服务器时区不能为空")
+	}
+	location, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil, fmt.Errorf("服务器时区 %q 无效", tz)
+	}
+	return location, nil
+}
+
 // Validate 校验服务器配置。
 func (c ServerConfig) Validate() error {
+	if _, err := c.Location(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(c.Host) == "" {
 		return errors.New("监听主机不能为空")
 	}

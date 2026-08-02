@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -10,6 +11,11 @@ import (
 
 	"golang.org/x/crypto/argon2"
 )
+
+// HashPassword 为配置文件生成包含参数、随机盐值和哈希的 Argon2id PHC 字符串。
+func HashPassword(password string) (string, error) {
+	return hashPassword(password, rand.Reader)
+}
 
 const (
 	passwordMemory      = 32 * 1024
@@ -49,8 +55,8 @@ func hashPassword(password string, random io.Reader) (string, error) {
 	), nil
 }
 
-// ValidatePassword 统一定义创建用户时使用的密码长度规则。
-// API 可以用它提前返回参数错误，Service 在生成哈希前仍会再次校验。
+// ValidatePassword 统一定义管理员密码长度规则。
+// 命令行生成哈希前仍会再次校验，防止绕过入口校验。
 func ValidatePassword(password string) error {
 	if len(password) < 10 || len(password) > 1024 {
 		return fmt.Errorf("%w: 密码长度必须为 10 到 1024 字节", ErrInvalidInput)
@@ -58,7 +64,7 @@ func ValidatePassword(password string) error {
 	return nil
 }
 
-// verifyPassword 从数据库哈希中读取参数，再以常量时间比较计算结果。
+// verifyPassword 从 PHC 字符串中读取参数，再以常量时间比较计算结果。
 func verifyPassword(password, encoded string) (bool, error) {
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
@@ -75,7 +81,7 @@ func verifyPassword(password, encoded string) (bool, error) {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism); err != nil {
 		return false, errors.New("无效的 Argon2id 参数")
 	}
-	// 参数来自数据库，但仍设置上限，防止损坏数据导致异常内存或 CPU 消耗。
+	// 参数来自配置文件，但仍设置上限，防止错误配置导致异常内存或 CPU 消耗。
 	if memory == 0 || memory > 256*1024 || iterations == 0 || iterations > 10 || parallelism == 0 || parallelism > 16 {
 		return false, errors.New("Argon2id 参数超出允许范围")
 	}

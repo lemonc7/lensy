@@ -1,7 +1,7 @@
-# 复制为同目录下的 config.yml 后按部署环境修改。
 server:
   host: 127.0.0.1
   port: 8080
+  tz: Asia/Shanghai
   # Docker 反向代理部署时填写外部地址，例如 https://img.example.com。
   # 留空时根据当前请求的协议和 Host 生成图片链接。
   public_url: ""
@@ -29,10 +29,13 @@ image:
   thumbnail_max_edge: 480
 
 auth:
+  username: admin
+  # 使用 `lensy password` 生成，不要填写明文密码。
+  password_hash: ""
   # 生产环境建议通过 LENSY_SESSION_AUTH_KEY 提供，至少 32 字节。
   session_auth_key: ""
   # 生产环境建议通过 LENSY_SESSION_ENCRYPTION_KEY 提供，只能为 16、24 或 32 字节。
   session_encryption_key: ""
-  session_ttl: 168h
+  session_ttl: 24h
   # 使用 HTTPS 时必须改为 true。
   secure_cookie: false

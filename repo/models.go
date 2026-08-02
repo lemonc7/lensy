@@ -33,13 +33,3 @@ type Image struct {
 	UpdatedAt       int64  `json:"updated_at"`
 	DeletedAt       *int64 `json:"deleted_at"`
 }
-
-type User struct {
-	ID           int64  `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"password_hash"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
-	LastLoginAt  *int64 `json:"last_login_at"`
-	DisabledAt   *int64 `json:"disabled_at"`
-}

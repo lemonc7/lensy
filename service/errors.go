@@ -13,9 +13,6 @@ var (
 	ErrExpiredToken       = errors.New("API Token 已过期")
 	ErrRevokedToken       = errors.New("API Token 已撤销")
 	ErrInvalidCredentials = errors.New("用户名或密码错误")
-	ErrUserDisabled       = errors.New("用户已被禁用")
-	ErrUserExists         = errors.New("用户名已存在")
-	ErrAdminInitialized   = errors.New("管理员已初始化")
 )
 
 type RestoreConflictError struct {

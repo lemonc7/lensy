@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/lemonc7/lensy/api"
 	"github.com/lemonc7/lensy/app"
@@ -21,6 +22,15 @@ import (
 )
 
 func main() {
+	handled, err := handlePasswordCommand(os.Args[1:])
+	if handled {
+		if err != nil {
+			slog.Error("生成密码哈希失败", "错误", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -35,6 +45,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("加载配置: %w", err)
 	}
+	location, err := cfg.Server.Location()
+	if err != nil {
+		return fmt.Errorf("设置应用时区: %w", err)
+	}
+	// 在启动其他组件前设置全局时区，使图片日期目录和应用日志保持一致。
+	time.Local = location
 
 	db, err := database.New(cfg.Database)
 	if err != nil {
@@ -47,7 +63,10 @@ func run(ctx context.Context) error {
 	}()
 
 	queries := repo.New(db)
-	authService := service.NewAuth(queries)
+	authService, err := service.NewAuth(cfg.Auth.Username, cfg.Auth.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("初始化认证服务: %w", err)
+	}
 	authAPI, err := api.NewAuth(authService, cfg.Auth)
 	if err != nil {
 		return fmt.Errorf("初始化认证接口: %w", err)
@@ -72,14 +91,6 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("初始化 API Token 接口: %w", err)
 	}
 	router := app.NewRouter(authAPI, imageAPI, tokenAPI, cfg)
-
-	setupRequired, err := authService.SetupRequired(ctx)
-	if err != nil {
-		return fmt.Errorf("检查管理员初始化状态: %w", err)
-	}
-	if setupRequired {
-		slog.Warn("尚未创建管理员，请先调用初始化接口", "接口", "http://"+cfg.Server.Address()+"/api/auth/setup")
-	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address(),

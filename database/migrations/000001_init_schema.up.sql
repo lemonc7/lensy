@@ -1,14 +1,3 @@
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL COLLATE NOCASE UNIQUE
-    CHECK (length(trim(username)) BETWEEN 3 AND 100),
-  password_hash TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  last_login_at INTEGER,
-  disabled_at INTEGER
-);
-
 CREATE TABLE images (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   public_id TEXT NOT NULL UNIQUE,
