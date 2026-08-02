@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -78,7 +77,7 @@ func (s *Image) Upload(ctx context.Context, input UploadImageInput) (UploadImage
 		return UploadImageResult{}, fmt.Errorf("查询重复图片: %w", err)
 	}
 
-	// 9 字节随机数编码后为 12 个 URL-safe 字符，在保持 72 位随机性的同时缩短公开链接。
+	// 固定 12 位 Base62 ID 不含标点，便于复制和展示，同时保留约 71.45 位随机熵。
 	publicID, err := randomImageID(s.random)
 	if err != nil {
 		return UploadImageResult{}, fmt.Errorf("生成图片 ID: %w", err)
@@ -249,12 +248,28 @@ func validateOriginalName(name string) error {
 	return nil
 }
 
+const (
+	imageIDLength   = 12
+	imageIDAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	// 248 是不超过 256 的最大 62 的倍数；丢弃更大的字节可避免取模偏差。
+	imageIDByteLimit = 256 - 256%len(imageIDAlphabet)
+)
+
 func randomImageID(reader io.Reader) (string, error) {
-	buffer := make([]byte, 9)
-	if _, err := io.ReadFull(reader, buffer); err != nil {
-		return "", err
+	result := make([]byte, 0, imageIDLength)
+	for len(result) < imageIDLength {
+		buffer := make([]byte, imageIDLength-len(result))
+		if _, err := io.ReadFull(reader, buffer); err != nil {
+			return "", err
+		}
+		for _, value := range buffer {
+			if int(value) >= imageIDByteLimit {
+				continue
+			}
+			result = append(result, imageIDAlphabet[int(value)%len(imageIDAlphabet)])
+		}
 	}
-	return base64.RawURLEncoding.EncodeToString(buffer), nil
+	return string(result), nil
 }
 
 func clampLimit(limit int) int {
