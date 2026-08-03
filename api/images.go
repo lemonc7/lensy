@@ -282,10 +282,19 @@ func isDatedImagePath(value string) bool {
 		return false
 	}
 	parts := strings.Split(value, "/")
-	if len(parts) != 4 || !strings.HasSuffix(parts[3], ".webp") {
+	if len(parts) != 3 && len(parts) != 4 {
 		return false
 	}
-	_, err := time.Parse("2006/01/02", strings.Join(parts[:3], "/"))
+	if !strings.HasSuffix(parts[len(parts)-1], ".webp") {
+		return false
+	}
+	dateParts := parts[:len(parts)-1]
+	dateFormat := "2006/01"
+	if len(dateParts) == 3 {
+		// 兼容改为按月分目录前已经生成的公开链接。
+		dateFormat = "2006/01/02"
+	}
+	_, err := time.Parse(dateFormat, strings.Join(dateParts, "/"))
 	return err == nil
 }
 

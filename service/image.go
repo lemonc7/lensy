@@ -83,8 +83,8 @@ func (s *Image) Upload(ctx context.Context, input UploadImageInput) (UploadImage
 		return UploadImageResult{}, fmt.Errorf("生成图片 ID: %w", err)
 	}
 	now := s.now()
-	// 日期目录便于人工查看、迁移和备份，也避免单个目录积累过多文件。
-	datePath := now.Format("2006/01/02")
+	// 按月分目录便于人工查看、迁移和备份；常规图片量下无需再拆分到每天。
+	datePath := now.Format("2006/01")
 	storageKey := path.Join("images", datePath, publicID+".webp")
 	thumbnailKey := path.Join("thumbnails", datePath, publicID+".webp")
 	// 文件先落盘，数据库后写入；数据库失败时可以根据已知 key 删除文件进行补偿。
