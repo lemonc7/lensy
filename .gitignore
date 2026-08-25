@@ -1,3 +1,4 @@
 data/
 .env
-config/config.yml
+
+/target

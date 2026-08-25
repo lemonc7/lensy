@@ -1,0 +1,16 @@
+[package]
+name = "lensy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4"
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+  "webp",
+] }
+sha2 = "0.11"
+tempfile = "3"
+thiserror = "2"
+webp = { version = "0.3", default-features = false }
