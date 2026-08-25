@@ -2,7 +2,5 @@
 .gitignore
 .dockerignore
 Dockerfile
-config/*.yml
-sqlc.yml
 docker-compose.yml
 data/

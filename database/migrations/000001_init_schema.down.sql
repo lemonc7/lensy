@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS api_tokens;
-DROP TABLE IF EXISTS images;
