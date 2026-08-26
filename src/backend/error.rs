@@ -63,7 +63,7 @@ pub enum ServiceError {
     PublicIdExhausted,
     #[error("并发重复图片冲突发生后未找到已有图片")]
     MissingConflictingImage,
-    #[error("生成 public_id 失败: {0}")]
+    #[error("生成安全随机数失败: {0}")]
     Random(#[from] getrandom::Error),
     #[error("处理图片失败: {0}")]
     ImageProcessor(#[from] ImageProcessorError),
@@ -77,6 +77,14 @@ pub enum ServiceError {
     RestoreConflict(PublicId),
     #[error("阻塞任务异常终止: {0}")]
     BlockingTask(#[from] tokio::task::JoinError),
+    #[error("API Token 名称必须去除首尾空格，且包含 1 到 100 个字符")]
+    InvalidApiTokenName,
+    #[error("API Token 过期时间必须晚于当前时间")]
+    InvalidApiTokenExpiration,
+    #[error("API Token 无效、已过期或已被撤销")]
+    InvalidApiToken,
+    #[error("API Token 不存在")]
+    ApiTokenNotFound,
 }
 
 #[derive(Debug)]

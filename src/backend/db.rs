@@ -1,3 +1,4 @@
+pub mod api_token;
 pub mod image;
 
 use std::{fs, path::Path, str::FromStr, time::Duration};
