@@ -4,7 +4,7 @@ use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage, imageops::Filter
 use webp::{BitstreamFeatures, Encoder, WebPConfig};
 
 use crate::backend::{
-    config::ImageConfig,
+    config::{ConfigError, ImageConfig},
     error::ImageProcessorError,
     image::{
         format::SupportedFormat,
@@ -12,6 +12,8 @@ use crate::backend::{
         resize::fit_dimensions,
     },
 };
+
+const MAX_WEBP_DIMENSION: u32 = 16_383;
 
 #[derive(Debug)]
 pub struct ProcessedImage {
@@ -30,8 +32,9 @@ pub struct ImageProcessor {
 }
 
 impl ImageProcessor {
-    pub fn new(config: ImageConfig) -> Self {
-        Self { config }
+    pub fn new(config: ImageConfig) -> Result<Self, ConfigError> {
+        config.validate()?;
+        Ok(Self { config })
     }
 
     pub fn max_concurrent_processing(&self) -> usize {
@@ -130,7 +133,7 @@ impl ImageProcessor {
     }
 
     fn validate_dimensions(&self, width: u32, height: u32) -> Result<(), ImageProcessorError> {
-        if width == 0 || height == 0 {
+        if width == 0 || height == 0 || width > MAX_WEBP_DIMENSION || height > MAX_WEBP_DIMENSION {
             return Err(ImageProcessorError::InvalidDimensions { width, height });
         }
 
@@ -173,9 +176,12 @@ impl ImageProcessor {
 mod tests {
     use image::{ColorType, ImageEncoder, ImageFormat, codecs::png::PngEncoder};
 
-    use crate::backend::{config::ImageConfig, error::ImageProcessorError};
+    use crate::backend::{
+        config::{ConfigError, ImageConfig},
+        error::ImageProcessorError,
+    };
 
-    use super::ImageProcessor;
+    use super::{ImageProcessor, MAX_WEBP_DIMENSION};
 
     fn test_config() -> ImageConfig {
         ImageConfig {
@@ -207,6 +213,10 @@ mod tests {
         output
     }
 
+    fn processor(config: ImageConfig) -> ImageProcessor {
+        ImageProcessor::new(config).expect("测试配置应有效")
+    }
+
     fn process_error(processor: &ImageProcessor, input: &[u8]) -> ImageProcessorError {
         match processor.process(input) {
             Ok(_) => panic!("预期图片处理失败"),
@@ -216,7 +226,7 @@ mod tests {
 
     #[test]
     fn converts_png_to_lossy_webp() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         let result = processor
             .process(&create_png(4, 2))
@@ -244,7 +254,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_input() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         let error = process_error(&processor, b"");
 
@@ -253,7 +263,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_format() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         let error = process_error(&processor, b"not an image");
 
@@ -262,7 +272,7 @@ mod tests {
 
     #[test]
     fn reports_corrupt_png_as_decode_error() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         let corrupt_png = [
             0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00,
@@ -275,7 +285,7 @@ mod tests {
 
     #[test]
     fn reports_invalid_webp_bitstream() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         // 魔数符合 WebP，但内容不是合法 WebP。
         let invalid_webp = b"RIFF\x00\x00\x00\x00WEBPbroken";
@@ -290,7 +300,7 @@ mod tests {
         let mut config = test_config();
         config.max_upload_size = 4;
 
-        let processor = ImageProcessor::new(config);
+        let processor = processor(config);
         let png = create_png(1, 1);
 
         let error = process_error(&processor, &png);
@@ -303,7 +313,7 @@ mod tests {
         let mut config = test_config();
         config.max_pixels = 15;
 
-        let processor = ImageProcessor::new(config);
+        let processor = processor(config);
         let png = create_png(4, 4);
 
         let error = process_error(&processor, &png);
@@ -312,11 +322,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_dimensions_unsupported_by_webp() {
+        let processor = processor(test_config());
+        let png = create_png(MAX_WEBP_DIMENSION + 1, 1);
+
+        let error = process_error(&processor, &png);
+
+        assert!(matches!(
+            error,
+            ImageProcessorError::InvalidDimensions {
+                width: 16_384,
+                height: 1
+            }
+        ));
+    }
+
+    #[test]
     fn does_not_upscale_small_image() {
         let mut config = test_config();
         config.thumbnail_max_edge = 480;
 
-        let processor = ImageProcessor::new(config);
+        let processor = processor(config);
 
         let result = processor
             .process(&create_png(4, 2))
@@ -327,7 +353,7 @@ mod tests {
 
     #[test]
     fn produces_stable_pixel_hash() {
-        let processor = ImageProcessor::new(test_config());
+        let processor = processor(test_config());
 
         let input = create_png(4, 2);
 
@@ -341,17 +367,15 @@ mod tests {
     }
 
     #[test]
-    fn reports_invalid_webp_encoder_config() {
+    fn rejects_invalid_webp_encoder_config() {
         let mut config = test_config();
 
         // libwebp 只允许 0..=6。
         config.method = 7;
 
-        let processor = ImageProcessor::new(config);
-        let png = create_png(2, 2);
-
-        let error = process_error(&processor, &png);
-
-        assert!(matches!(error, ImageProcessorError::WebpEncoding(_),));
+        assert!(matches!(
+            ImageProcessor::new(config),
+            Err(ConfigError::InvalidMethod(7))
+        ));
     }
 }

@@ -36,6 +36,12 @@ pub enum StorageError {
     AlreadyExists(PathBuf),
     #[error("文件操作失败: {0}")]
     Io(#[from] io::Error),
+    #[error("同步目录失败，文件状态可能已改变: {}: {source}", path.display())]
+    Durability {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("保存缩略图失败且回滚原图失败；保存错误: {save_error}；回滚错误: {rollback_error}")]
     RollbackFailed {
         save_error: Box<StorageError>,
@@ -63,6 +69,8 @@ pub enum ServiceError {
     PublicIdExhausted,
     #[error("并发重复图片冲突发生后未找到已有图片")]
     MissingConflictingImage,
+    #[error("上传已被恢复任务接管，请重试")]
+    UploadInterrupted,
     #[error("生成安全随机数失败: {0}")]
     Random(#[from] getrandom::Error),
     #[error("处理图片失败: {0}")]
@@ -90,5 +98,6 @@ pub enum ServiceError {
 #[derive(Debug)]
 pub enum ImageWriteError {
     ActivePixelConflict,
+    PendingUploadMissing,
     Database(sqlx::Error),
 }
