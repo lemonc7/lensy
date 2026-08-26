@@ -2,7 +2,8 @@ use std::{fmt, fs::File};
 
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[sqlx(transparent)]
 pub struct PublicId(String);
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -38,16 +39,20 @@ impl fmt::Display for PublicId {
     }
 }
 
-impl From<String> for PublicId {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum Status {
+    Uploading,
+    Active,
+    Trashed,
+    Deleting,
 }
 
 #[derive(Debug, Clone)]
 pub struct StoredImage {
     pub id: i64,
     pub public_id: PublicId,
+    pub status: Status,
     pub storage_key: String,
     pub thumbnail_key: String,
     pub original_name: String,
@@ -85,42 +90,16 @@ pub struct UploadImageResult {
     pub already_exists: bool,
 }
 
-#[derive(Debug)]
-pub struct PendingUpload {
-    pub public_id: PublicId,
-    pub storage_key: String,
-    pub thumbnail_key: String,
-    pub created_at: i64,
-}
-
 #[derive(Debug, Default)]
-pub struct PendingUploadRecoveryReport {
+pub struct ImageCleanupReport {
+    pub claimed_uploads: usize,
     pub cleaned: usize,
-    pub failures: Vec<PendingUploadRecoveryFailure>,
+    pub failures: Vec<ImageCleanupFailure>,
 }
 
 #[derive(Debug)]
-pub struct PendingUploadRecoveryFailure {
+pub struct ImageCleanupFailure {
     pub public_id: PublicId,
-    pub error: String,
-}
-
-#[derive(Debug)]
-pub struct PendingFileDeletion {
-    pub storage_key: String,
-    pub thumbnail_key: String,
-    pub created_at: i64,
-}
-
-#[derive(Debug, Default)]
-pub struct FileDeletionRecoveryReport {
-    pub cleaned: usize,
-    pub failures: Vec<FileDeletionRecoveryFailure>,
-}
-
-#[derive(Debug)]
-pub struct FileDeletionRecoveryFailure {
-    pub storage_key: String,
     pub error: String,
 }
 

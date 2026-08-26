@@ -56,7 +56,7 @@ pub enum DatabaseError {
     #[error("数据库迁移错误: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("创建父目录错误: {0}")]
-    CreateParent(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -93,11 +93,16 @@ pub enum ServiceError {
     InvalidApiToken,
     #[error("API Token 不存在")]
     ApiTokenNotFound,
+    #[error("上传失败并且清理也失败；原始错误: {original}；清理错误: {cleanup}")]
+    UploadCleanupFailed {
+        #[source]
+        original: Box<ServiceError>,
+        cleanup: Box<ServiceError>,
+    },
 }
 
 #[derive(Debug)]
 pub enum ImageWriteError {
     ActivePixelConflict,
-    PendingUploadMissing,
     Database(sqlx::Error),
 }
