@@ -11,7 +11,7 @@ pub struct Service {
     processor: Arc<ImageProcessor>,
     storage: Arc<Storage>,
     processing_limit: Arc<Semaphore>,
-    // pending_uploads 的恢复必须与本实例中正在落盘/写库的上传互斥。
+    // 防止当前实例正在进行的 uploading 被恢复任务接管。
     upload_recovery_lock: Arc<RwLock<()>>,
     timezone: Tz,
 }

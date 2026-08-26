@@ -14,28 +14,29 @@ impl Service {
         name: impl Into<String>,
         expires_at: Option<i64>,
     ) -> Result<CreatedApiToken, ServiceError> {
+        // 验证名称和过期时间
         let name = name.into();
-
         let valid_name = !name.is_empty() && name.trim() == name && name.chars().count() <= 100;
-
         if !valid_name {
             return Err(ServiceError::InvalidApiTokenName);
         }
-
         let now = Utc::now().timestamp();
-
         if expires_at.is_some_and(|t| t <= now) {
             return Err(ServiceError::InvalidApiTokenExpiration);
         }
 
+        // 生成明文token
         let secret = TokenSecret::generate()?;
+        // 计算hash
         let token_hash = secret.hash();
 
+        // 写入数据库
         let stored = self
             .repository
             .create_api_token(&name, secret.prefix(), &token_hash, now, expires_at)
             .await?;
 
+        // 返回明文
         Ok(CreatedApiToken {
             api_token: stored.into(),
             secret,
@@ -48,23 +49,26 @@ impl Service {
         Ok(tokens.into_iter().map(Into::into).collect())
     }
 
+    // 认证token
     pub async fn authenticate_api_token(&self, plaintext: &str) -> Result<ApiToken, ServiceError> {
-        // 格式错误，token不存在，过期和撤销统一返回相同错误，避免向请求方暴露token状态
+        // 检查token格式
         let secret = TokenSecret::parse(plaintext).map_err(|_| ServiceError::InvalidApiToken)?;
 
+        // 计算hash
         let token_hash = secret.hash();
-        let now = Utc::now().timestamp();
 
+        // 查询有效token
+        let now = Utc::now().timestamp();
         let stored = self
             .repository
             .find_usable_api_token_by_hash(&token_hash, now)
             .await?
             .ok_or(ServiceError::InvalidApiToken)?;
 
-        // 不需要每个请求都写sqlite，最多每五分钟更新一次
+        // 每五分钟更新一次last_used_at
         let stale_before = now.saturating_sub(LAST_USED_UPDATE_INTERVAL_SECONDS);
 
-        // last_used_at 仅用于管理展示；短暂的SQLite写锁竞争不应拒绝有效凭据。
+        // last_used_at仅用于管理展示；短暂的SQLite写锁竞争不应拒绝有效凭据。
         let _ = self
             .repository
             .update_api_token_last_used_at(stored.id, now, stale_before)
@@ -73,6 +77,7 @@ impl Service {
         Ok(stored.into())
     }
 
+    // 撤销token
     pub async fn revoke_api_token(&self, id: i64) -> Result<(), ServiceError> {
         let revoked = self
             .repository
