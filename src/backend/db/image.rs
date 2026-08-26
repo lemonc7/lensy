@@ -105,7 +105,14 @@ impl Repository {
                 created_at,
                 updated_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+            SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13
+            WHERE EXISTS (
+                SELECT 1
+                FROM pending_uploads
+                WHERE public_id = ?1
+                  AND storage_key = ?2
+                  AND thumbnail_key = ?3
+            )
             RETURNING *
             "#,
             image.public_id.as_str(),
@@ -122,11 +129,12 @@ impl Repository {
             image.pixel_hash,
             image.created_at
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await;
 
         match result {
-            Ok(image) => Ok(image),
+            Ok(Some(image)) => Ok(image),
+            Ok(None) => Err(ImageWriteError::PendingUploadMissing),
             Err(error) if is_active_pixel_conflict(&error) => {
                 Err(ImageWriteError::ActivePixelConflict)
             }
@@ -174,6 +182,12 @@ impl Repository {
                 FROM images
                 WHERE public_id = ?1
             )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM pending_file_deletions
+                  WHERE storage_key = ?2
+                    OR thumbnail_key = ?3
+              )
             ON CONFLICT(public_id) DO NOTHING
             "#,
             public_id.as_str(),
@@ -210,6 +224,67 @@ impl Repository {
         )
         .fetch_all(&self.pool)
         .await
+    }
+
+    // 原子检查恢复任务是否可以删除文件
+    pub async fn claim_pending_upload_for_cleanup(
+        &self,
+        pending: &PendingUpload,
+    ) -> Result<bool, sqlx::Error> {
+        let mut transaction = self.pool.begin().await?;
+
+        // 先把清理任务转入持久删除队列，再移除上传许可
+        // 正常任务：创建pending_uploads -> 写入文件 -> 插入images -> 触发器删除pending_uploads
+        // 可能在插入images时出错，后续恢复任务需要清理文件和pending_uploads
+        // 删除pending_uploading -> 进程崩溃 -> 文件还没删除 -> 数据库没有文件路径 -> 形成孤儿文件
+        // 所以先将路径写入pending_file_deletions
+        // pending_uploading -> pending_file_deletions -> 删除磁盘文件 -> 删除pending_file_deletions
+        let queued = sqlx::query!(
+            r#"
+            INSERT INTO pending_file_deletions (
+                storage_key,
+                thumbnail_key,
+                created_at
+            )
+            SELECT storage_key, thumbnail_key, created_at
+            FROM pending_uploads
+            WHERE public_id = ?1
+              AND storage_key = ?2
+              AND thumbnail_key = ?3
+            ON CONFLICT DO NOTHING
+            "#,
+            pending.public_id.as_str(),
+            pending.storage_key,
+            pending.thumbnail_key,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        // 如果pending不存在，或者无法转入到删除队列，说明现在不能删除文件
+        if queued.rows_affected() == 0 {
+            return Ok(false);
+        }
+
+        let removed = sqlx::query!(
+            r#"
+            DELETE FROM pending_uploads
+            WHERE public_id = ?1
+              AND storage_key = ?2
+              AND thumbnail_key = ?3
+            "#,
+            pending.public_id.as_str(),
+            pending.storage_key,
+            pending.thumbnail_key,
+        )
+        .execute(&mut *transaction)
+        .await?;
+
+        if removed.rows_affected() != 1 {
+            return Ok(false);
+        }
+
+        transaction.commit().await?;
+        Ok(true)
     }
 
     pub async fn find_active_image_by_public_id(
@@ -364,6 +439,12 @@ fn is_active_pixel_conflict(error: &sqlx::Error) -> bool {
 mod tests {
     use sqlx::{SqlitePool, sqlite::SqliteQueryResult};
 
+    use crate::backend::{
+        db::Repository,
+        error::ImageWriteError,
+        model::{NewImage, PublicId},
+    };
+
     use super::is_active_pixel_conflict;
 
     #[sqlx::test]
@@ -386,6 +467,103 @@ mod tests {
 
         assert!(!is_active_pixel_conflict(&public_id_error));
 
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn pending_cleanup_and_image_creation_are_mutually_exclusive(
+        pool: SqlitePool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let repository = Repository::new(pool);
+        let public_id = PublicId::parse("C8kLm2Pq7XzB")?;
+        let storage_key = "images/2026/08/race.webp";
+        let thumbnail_key = "thumbnails/2026/08/race.webp";
+
+        assert!(
+            repository
+                .reserve_pending_upload(&public_id, storage_key, thumbnail_key, 1)
+                .await?
+        );
+
+        let pending = repository
+            .list_pending_uploads()
+            .await?
+            .into_iter()
+            .next()
+            .expect("应存在 pending upload");
+
+        assert!(
+            repository
+                .claim_pending_upload_for_cleanup(&pending)
+                .await?
+        );
+
+        let content_hash = "c".repeat(64);
+        let pixel_hash = "d".repeat(64);
+        let result = repository
+            .create_image(NewImage {
+                public_id: &public_id,
+                storage_key,
+                thumbnail_key,
+                original_name: "race.png",
+                stored_size: 100,
+                thumbnail_size: 50,
+                width: 10,
+                height: 10,
+                thumbnail_width: 5,
+                thumbnail_height: 5,
+                content_hash: &content_hash,
+                pixel_hash: &pixel_hash,
+                created_at: 1,
+            })
+            .await;
+
+        assert!(matches!(result, Err(ImageWriteError::PendingUploadMissing)));
+
+        let completed_id = PublicId::parse("D8kLm2Pq7XzB")?;
+        let completed_storage_key = "images/2026/08/completed.webp";
+        let completed_thumbnail_key = "thumbnails/2026/08/completed.webp";
+        assert!(
+            repository
+                .reserve_pending_upload(
+                    &completed_id,
+                    completed_storage_key,
+                    completed_thumbnail_key,
+                    2,
+                )
+                .await?
+        );
+        let stale_pending = repository
+            .list_pending_uploads()
+            .await?
+            .into_iter()
+            .find(|pending| pending.public_id == completed_id)
+            .expect("应存在第二条 pending upload");
+        let completed_pixel_hash = "e".repeat(64);
+        repository
+            .create_image(NewImage {
+                public_id: &completed_id,
+                storage_key: completed_storage_key,
+                thumbnail_key: completed_thumbnail_key,
+                original_name: "completed.png",
+                stored_size: 100,
+                thumbnail_size: 50,
+                width: 10,
+                height: 10,
+                thumbnail_width: 5,
+                thumbnail_height: 5,
+                content_hash: &content_hash,
+                pixel_hash: &completed_pixel_hash,
+                created_at: 2,
+            })
+            .await
+            .expect("持有 pending 时应能创建图片");
+
+        assert!(
+            !repository
+                .claim_pending_upload_for_cleanup(&stale_pending)
+                .await?
+        );
         Ok(())
     }
 

@@ -19,16 +19,12 @@ pub struct Storage {
 impl Storage {
     pub fn new(root: impl AsRef<Path>) -> Result<Self, StorageError> {
         let root = absolute_path(root.as_ref())?;
-
-        fs::create_dir_all(root.join("images"))?;
-        fs::create_dir_all(root.join("thumbnails"))?;
-
-        let temp_root = root.join("tmp");
-        fs::create_dir_all(&temp_root)?;
-
-        // canonicalize放在目录创建之后
+        fs::create_dir_all(&root)?;
         let root = fs::canonicalize(root)?;
-        let temp_root = root.join("tmp");
+
+        create_storage_directory(&root, "images")?;
+        create_storage_directory(&root, "thumbnails")?;
+        let temp_root = create_storage_directory(&root, "tmp")?;
         let temp_dir = Builder::new().prefix("lensy-").tempdir_in(temp_root)?;
         Ok(Self { root, temp_dir })
     }
@@ -49,7 +45,6 @@ impl Storage {
             ));
         }
 
-        // 提前检查
         ensure_not_exists(&image_path)?;
         ensure_not_exists(&thumbnail_path)?;
 
@@ -65,9 +60,8 @@ impl Storage {
 
         // 缩略图转正失败，需要撤销已经落盘的原图
         if let Err(save_error) = persist_noclobber(temp_thumbnail, &thumbnail_path) {
-            match fs::remove_file(&image_path) {
+            match remove_file_and_sync_parent(&image_path) {
                 Ok(()) => return Err(save_error),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(save_error),
                 Err(rollback_error) => {
                     return Err(StorageError::RollbackFailed {
                         save_error: Box::new(save_error),
@@ -76,6 +70,10 @@ impl Storage {
                 }
             }
         }
+
+        // 只有目录项也持久化后，调用方才能安全地提交数据库记录。
+        sync_parent_directory(&image_path)?;
+        sync_parent_directory(&thumbnail_path)?;
 
         Ok(())
     }
@@ -89,23 +87,29 @@ impl Storage {
         let image_path = self.resolve(image_key)?;
         let thumbnail_path = self.resolve(thumbnail_key)?;
 
-        let mut first_error = None;
+        let mut first_error: Option<StorageError> = None;
 
         for path in [&image_path, &thumbnail_path] {
             match fs::remove_file(path) {
-                Ok(()) => {}
+                Ok(()) => {
+                    if let Err(error) = sync_parent_directory(path)
+                        && first_error.is_none()
+                    {
+                        first_error = Some(error);
+                    }
+                }
                 // 文件不存在视为成功，保证删除操作幂等
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => {
                     if first_error.is_none() {
-                        first_error = Some(error)
+                        first_error = Some(StorageError::Io(error))
                     }
                 }
             }
         }
 
         match first_error {
-            Some(error) => Err(StorageError::Io(error)),
+            Some(error) => Err(error),
             None => Ok(()),
         }
     }
@@ -175,8 +179,52 @@ fn create_parent_directory(path: &Path) -> Result<(), io::Error> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "存储路径没有父目录"))?;
-
     fs::create_dir_all(parent)
+}
+
+fn create_storage_directory(root: &Path, name: &str) -> Result<PathBuf, StorageError> {
+    let path = root.join(name);
+    fs::create_dir_all(&path)?;
+    let canonical = fs::canonicalize(&path)?;
+    if !canonical.starts_with(root) {
+        return Err(StorageError::InvalidKey(format!(
+            "存储目录必须位于数据根目录内: {}",
+            path.display()
+        )));
+    }
+    Ok(canonical)
+}
+
+fn sync_parent_directory(path: &Path) -> Result<(), StorageError> {
+    let parent = path.parent().ok_or_else(|| {
+        StorageError::Io(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "存储路径没有父目录",
+        ))
+    })?;
+    let directory = File::open(parent).map_err(|source| StorageError::Durability {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    directory
+        .sync_all()
+        .map_err(|source| StorageError::Durability {
+            path: parent.to_path_buf(),
+            source,
+        })
+}
+
+fn remove_file_and_sync_parent(path: &Path) -> Result<(), io::Error> {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "存储路径没有父目录"))?;
+    File::open(parent)?.sync_all()
 }
 
 fn persist_noclobber(temp: NamedTempFile, target: &Path) -> Result<(), StorageError> {
@@ -305,6 +353,19 @@ mod tests {
     }
 
     #[test]
+    fn remove_is_idempotent_when_parent_directories_are_missing() {
+        let root = tempdir().unwrap();
+        let store = Storage::new(root.path()).unwrap();
+
+        store
+            .remove_image(
+                "images/2099/12/missing.webp",
+                "thumbnails/2099/12/missing.webp",
+            )
+            .unwrap();
+    }
+
+    #[test]
     fn does_not_leave_image_when_thumbnail_target_exists() {
         let root = tempdir().unwrap();
         let store = Storage::new(root.path()).unwrap();
@@ -327,5 +388,22 @@ mod tests {
 
         // 原有缩略图不能被覆盖。
         assert_eq!(std::fs::read(thumbnail_path).unwrap(), b"existing",);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_storage_directory() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        symlink(outside.path(), root.path().join("images")).unwrap();
+
+        let error = match Storage::new(root.path()) {
+            Ok(_) => panic!("符号链接目录应被拒绝"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, StorageError::InvalidKey(_)));
     }
 }

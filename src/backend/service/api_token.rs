@@ -64,9 +64,11 @@ impl Service {
         // 不需要每个请求都写sqlite，最多每五分钟更新一次
         let stale_before = now.saturating_sub(LAST_USED_UPDATE_INTERVAL_SECONDS);
 
-        self.repository
+        // last_used_at 仅用于管理展示；短暂的SQLite写锁竞争不应拒绝有效凭据。
+        let _ = self
+            .repository
             .update_api_token_last_used_at(stored.id, now, stale_before)
-            .await?;
+            .await;
 
         Ok(stored.into())
     }
@@ -159,6 +161,34 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn authentication_succeeds_when_last_used_update_fails(
+        pool: SqlitePool,
+    ) -> Result<(), Box<dyn Error>> {
+        let data_dir = tempdir()?;
+        let service = test_service(pool.clone(), data_dir.path())?;
+        let created = service.create_api_token("test", None).await?;
+
+        sqlx::query(
+            r#"
+            CREATE TRIGGER reject_last_used_update
+            BEFORE UPDATE OF last_used_at ON api_tokens
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated audit update failure');
+            END
+            "#,
+        )
+        .execute(&pool)
+        .await?;
+
+        let authenticated = service
+            .authenticate_api_token(created.secret.expose_secret())
+            .await?;
+
+        assert_eq!(authenticated.id, created.api_token.id);
+        Ok(())
+    }
+
+    #[sqlx::test]
     async fn rejects_revoked_api_token(pool: SqlitePool) -> Result<(), Box<dyn Error>> {
         let data_dir = tempdir()?;
         let service = test_service(pool, data_dir.path())?;
@@ -229,7 +259,7 @@ mod tests {
     fn test_service(pool: SqlitePool, data_path: &Path) -> Result<Service, Box<dyn Error>> {
         Ok(Service::new(
             Repository::new(pool),
-            ImageProcessor::new(test_image_config()),
+            ImageProcessor::new(test_image_config())?,
             Storage::new(data_path)?,
             Shanghai,
         ))

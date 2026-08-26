@@ -162,6 +162,9 @@ impl Service {
         let thumbnail_size = i64::try_from(processed.thumbnail_webp.len())
             .map_err(|_| ServiceError::FileSizeOverflow)?;
 
+        // 从预留 pending 到图片记录提交/回滚完成期间，阻止恢复任务清理本次上传。
+        let _upload_guard = self.upload_recovery_lock.read().await;
+
         // 在写文件之前预留public_id
         let upload_time = self.current_time();
         let reserved = self.reserve_upload_id(upload_time).await?;
@@ -225,6 +228,12 @@ impl Service {
                     already_exists: true,
                 })
             }
+            Err(ImageWriteError::PendingUploadMissing) => {
+                // 恢复任务已经原子接管该 pending；文件删除是幂等的。
+                self.remove_image_files(&reserved.storage_key, &reserved.thumbnail_key)
+                    .await?;
+                Err(ServiceError::UploadInterrupted)
+            }
             Err(ImageWriteError::Database(error)) => {
                 self.rollback_uploaded_files(
                     &reserved.public_id,
@@ -241,15 +250,26 @@ impl Service {
     pub async fn recover_pending_uploads(
         &self,
     ) -> Result<PendingUploadRecoveryReport, ServiceError> {
+        // 等待本实例中的上传完成，并在清理期间阻止新的pending被创建。
+        let _recovery_guard = self.upload_recovery_lock.write().await;
         let pending_uploads = self.repository.list_pending_uploads().await?;
         let mut report = PendingUploadRecoveryReport::default();
 
         for pending in pending_uploads {
+            if !self
+                .repository
+                .claim_pending_upload_for_cleanup(&pending)
+                .await?
+            {
+                // 上传可能已经提交，触发器已移除pending；不能再删除文件。
+                continue;
+            }
+
             if let Err(error) = self
                 .remove_image_files(&pending.storage_key, &pending.thumbnail_key)
                 .await
             {
-                // 文件清理失败时必须保留pending，这样下次启动还能继续重试
+                // 清理任务已经转入 pending_file_deletions，后续仍可安全重试。
                 report.failures.push(PendingUploadRecoveryFailure {
                     public_id: pending.public_id,
                     error: error.to_string(),
@@ -259,10 +279,10 @@ impl Service {
 
             if let Err(error) = self
                 .repository
-                .remove_pending_upload(&pending.public_id)
+                .remove_pending_file_deletion(&pending.storage_key)
                 .await
             {
-                // 文件已经删除，但pending删除失败，继续保留记录是安全的，因为文件删除幂等
+                // 文件已经删除，但删除队列更新失败；保留任务是安全的，因为文件删除幂等。
                 report.failures.push(PendingUploadRecoveryFailure {
                     public_id: pending.public_id,
                     error: error.to_string(),
@@ -321,6 +341,7 @@ impl Service {
                     .ok_or(ServiceError::MissingConflictingImage)?;
                 Err(ServiceError::RestoreConflict(existing.public_id))
             }
+            Err(ImageWriteError::PendingUploadMissing) => Err(ServiceError::UploadInterrupted),
             Err(ImageWriteError::Database(error)) => Err(ServiceError::Database(error)),
         }
     }
@@ -452,7 +473,10 @@ impl Service {
         error: StorageError,
     ) -> Result<T, ServiceError> {
         // rollback failed表示原图可能仍在磁盘上，此时不能删除pending_uploads，否则会丢失清理依据
-        if matches!(error, StorageError::RollbackFailed { .. }) {
+        if matches!(
+            error,
+            StorageError::RollbackFailed { .. } | StorageError::Durability { .. }
+        ) {
             return Err(ServiceError::Storage(error));
         }
 
@@ -564,7 +588,7 @@ mod tests {
 
         let repository = Repository::new(pool.clone());
 
-        let processor = ImageProcessor::new(test_image_config());
+        let processor = ImageProcessor::new(test_image_config())?;
 
         let storage = Storage::new(data_dir.path())?;
 
@@ -818,7 +842,13 @@ mod tests {
             .fetch_one(&pool)
             .await?;
 
-        assert_eq!(pending_count, 1);
+        assert_eq!(pending_count, 0);
+
+        let deletion_count = sqlx::query_scalar!("SELECT COUNT(*) FROM pending_file_deletions")
+            .fetch_one(&pool)
+            .await?;
+
+        assert_eq!(deletion_count, 1);
 
         Ok(())
     }
@@ -1090,7 +1120,7 @@ mod tests {
     ) -> Result<Service, Box<dyn Error>> {
         Ok(Service::new(
             Repository::new(pool),
-            ImageProcessor::new(test_image_config()),
+            ImageProcessor::new(test_image_config())?,
             Storage::new(data_path)?,
             Shanghai,
         ))
