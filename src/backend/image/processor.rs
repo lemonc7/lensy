@@ -34,6 +34,10 @@ impl ImageProcessor {
         Self { config }
     }
 
+    pub fn max_concurrent_processing(&self) -> usize {
+        self.config.max_concurrent_processing
+    }
+
     pub fn process(&self, source: &[u8]) -> Result<ProcessedImage, ImageProcessorError> {
         // 校验上传字节数
         if source.is_empty() {
