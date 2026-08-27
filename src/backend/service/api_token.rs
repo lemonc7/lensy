@@ -1,9 +1,8 @@
 use chrono::Utc;
 
-use crate::backend::{
-    error::ServiceError,
-    model::{ApiToken, CreatedApiToken, TokenSecret},
-    service::Service,
+use crate::{
+    backend::{error::ServiceError, service::Service},
+    contracts::{ApiToken, CreatedApiToken, TokenSecret},
 };
 
 const LAST_USED_UPDATE_INTERVAL_SECONDS: i64 = 5 * 60;
@@ -253,7 +252,7 @@ mod tests {
 
         assert!(matches!(
             service
-                .authenticate_api_token(created.secret.expose_secret(),)
+                .authenticate_api_token(created.secret.expose_secret())
                 .await,
             Err(ServiceError::InvalidApiToken),
         ));
@@ -264,7 +263,7 @@ mod tests {
     fn test_service(pool: SqlitePool, data_path: &Path) -> Result<Service, Box<dyn Error>> {
         Ok(Service::new(
             Repository::new(pool),
-            ImageProcessor::new(test_image_config())?,
+            ImageProcessor::new(test_image_config()),
             Storage::new(data_path)?,
             Shanghai,
         ))

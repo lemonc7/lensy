@@ -1,6 +1,6 @@
 use std::{io, path::PathBuf};
 
-use crate::backend::model::PublicId;
+use crate::contracts::PublicId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImageProcessorError {

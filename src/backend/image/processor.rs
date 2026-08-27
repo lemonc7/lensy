@@ -4,7 +4,7 @@ use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage, imageops::Filter
 use webp::{BitstreamFeatures, Encoder, WebPConfig};
 
 use crate::backend::{
-    config::{ConfigError, ImageConfig},
+    config::ImageConfig,
     error::ImageProcessorError,
     image::{
         format::SupportedFormat,
@@ -32,9 +32,8 @@ pub struct ImageProcessor {
 }
 
 impl ImageProcessor {
-    pub fn new(config: ImageConfig) -> Result<Self, ConfigError> {
-        config.validate()?;
-        Ok(Self { config })
+    pub fn new(config: ImageConfig) -> Self {
+        Self { config }
     }
 
     pub fn max_concurrent_processing(&self) -> usize {
@@ -176,10 +175,7 @@ impl ImageProcessor {
 mod tests {
     use image::{ColorType, ImageEncoder, ImageFormat, codecs::png::PngEncoder};
 
-    use crate::backend::{
-        config::{ConfigError, ImageConfig},
-        error::ImageProcessorError,
-    };
+    use crate::backend::{config::ImageConfig, error::ImageProcessorError};
 
     use super::{ImageProcessor, MAX_WEBP_DIMENSION};
 
@@ -213,10 +209,6 @@ mod tests {
         output
     }
 
-    fn processor(config: ImageConfig) -> ImageProcessor {
-        ImageProcessor::new(config).expect("测试配置应有效")
-    }
-
     fn process_error(processor: &ImageProcessor, input: &[u8]) -> ImageProcessorError {
         match processor.process(input) {
             Ok(_) => panic!("预期图片处理失败"),
@@ -226,7 +218,7 @@ mod tests {
 
     #[test]
     fn converts_png_to_lossy_webp() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         let result = processor
             .process(&create_png(4, 2))
@@ -254,7 +246,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_input() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         let error = process_error(&processor, b"");
 
@@ -263,7 +255,7 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_format() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         let error = process_error(&processor, b"not an image");
 
@@ -272,7 +264,7 @@ mod tests {
 
     #[test]
     fn reports_corrupt_png_as_decode_error() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         let corrupt_png = [
             0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00,
@@ -285,14 +277,14 @@ mod tests {
 
     #[test]
     fn reports_invalid_webp_bitstream() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         // 魔数符合 WebP，但内容不是合法 WebP。
         let invalid_webp = b"RIFF\x00\x00\x00\x00WEBPbroken";
 
         let error = process_error(&processor, invalid_webp);
 
-        assert!(matches!(error, ImageProcessorError::InvalidWebpBitstream,));
+        assert!(matches!(error, ImageProcessorError::InvalidWebpBitstream));
     }
 
     #[test]
@@ -300,7 +292,7 @@ mod tests {
         let mut config = test_config();
         config.max_upload_size = 4;
 
-        let processor = processor(config);
+        let processor = ImageProcessor::new(config);
         let png = create_png(1, 1);
 
         let error = process_error(&processor, &png);
@@ -313,7 +305,7 @@ mod tests {
         let mut config = test_config();
         config.max_pixels = 15;
 
-        let processor = processor(config);
+        let processor = ImageProcessor::new(config);
         let png = create_png(4, 4);
 
         let error = process_error(&processor, &png);
@@ -323,7 +315,7 @@ mod tests {
 
     #[test]
     fn rejects_dimensions_unsupported_by_webp() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
         let png = create_png(MAX_WEBP_DIMENSION + 1, 1);
 
         let error = process_error(&processor, &png);
@@ -342,7 +334,7 @@ mod tests {
         let mut config = test_config();
         config.thumbnail_max_edge = 480;
 
-        let processor = processor(config);
+        let processor = ImageProcessor::new(config);
 
         let result = processor
             .process(&create_png(4, 2))
@@ -353,7 +345,7 @@ mod tests {
 
     #[test]
     fn produces_stable_pixel_hash() {
-        let processor = processor(test_config());
+        let processor = ImageProcessor::new(test_config());
 
         let input = create_png(4, 2);
 
@@ -364,18 +356,5 @@ mod tests {
         assert_eq!(first.pixel_hash, second.pixel_hash,);
 
         assert_eq!(first.content_hash, second.content_hash,);
-    }
-
-    #[test]
-    fn rejects_invalid_webp_encoder_config() {
-        let mut config = test_config();
-
-        // libwebp 只允许 0..=6。
-        config.method = 7;
-
-        assert!(matches!(
-            ImageProcessor::new(config),
-            Err(ConfigError::InvalidMethod(7))
-        ));
     }
 }

@@ -202,16 +202,11 @@ fn sync_parent_directory(path: &Path) -> Result<(), StorageError> {
             "存储路径没有父目录",
         ))
     })?;
-    let directory = File::open(parent).map_err(|source| StorageError::Durability {
+
+    sync_directory(parent).map_err(|source| StorageError::Durability {
         path: parent.to_path_buf(),
         source,
-    })?;
-    directory
-        .sync_all()
-        .map_err(|source| StorageError::Durability {
-            path: parent.to_path_buf(),
-            source,
-        })
+    })
 }
 
 fn remove_file_and_sync_parent(path: &Path) -> Result<(), io::Error> {
@@ -224,7 +219,14 @@ fn remove_file_and_sync_parent(path: &Path) -> Result<(), io::Error> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "存储路径没有父目录"))?;
-    File::open(parent)?.sync_all()
+    sync_directory(parent)
+}
+
+fn sync_directory(_path: &Path) -> Result<(), io::Error> {
+    cfg_select! {
+      unix => File::open(_path)?.sync_all(),
+      _ => Ok(())
+    }
 }
 
 fn persist_noclobber(temp: NamedTempFile, target: &Path) -> Result<(), StorageError> {
