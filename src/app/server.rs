@@ -90,9 +90,8 @@ async fn serve(config: &ServerConfig, service: Arc<Service>) -> dioxus::Result<(
         ))
         .layer(CatchPanicLayer::new());
 
-    let auth_layer = middleware::from_fn_with_state(state.clone(), require_api_token);
     let router = dioxus::server::router(App)
-        .layer(auth_layer)
+        .layer(middleware::from_fn(require_api_token))
         .layer(Extension(state))
         .layer(http_layers);
 
