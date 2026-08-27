@@ -1,19 +1,22 @@
 #[cfg(feature = "server")]
 use crate::app::server::AppState;
-use crate::{
-    backend::{error::ServiceError, model::ImageFileKind},
-    contracts::{ImageCursor, ImagePageDto, PublicId},
-};
 #[cfg(feature = "server")]
-use dioxus::server::axum::Extension;
-
+use crate::backend::{error::ServiceError, model::ImageFileKind};
+#[cfg(feature = "server")]
 use dioxus::{
-    fullstack::{HeaderValue, body::Body, response::Response},
+    fullstack::body::Body,
     logger::tracing,
-    prelude::*,
-    server::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+    server::{
+        axum::Extension,
+        http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+    },
 };
+
+#[cfg(feature = "server")]
 use tokio_util::io::ReaderStream;
+
+use crate::contracts::{ImageCursor, ImagePageDto, PublicId};
+use dioxus::{fullstack::response::Response, prelude::*};
 
 #[server(state:Extension<AppState>)]
 pub async fn list_images(
@@ -55,22 +58,13 @@ pub async fn get_image(file_name: String) -> Result<Response, StatusCode> {
         .await
         .map_err(map_image_error)?;
 
-    let content_length = HeaderValue::from_str(opened.content_type).map_err(|error| {
-        tracing::error!(
-          ?error,
-          %public_id,
-          "生成Content-Length失败"
-        );
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
     let file = tokio::fs::File::from_std(opened.file);
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, opened.content_type)
-        .header(CONTENT_LENGTH, content_length)
+        .header(CONTENT_LENGTH, opened.content_length.to_string())
         .header(CACHE_CONTROL, "public, max-age=86400")
         .body(body)
         .map_err(|error| {

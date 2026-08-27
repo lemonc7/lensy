@@ -1,12 +1,12 @@
 use dioxus::{
     fullstack::{
         HeaderValue, StatusCode,
-        extract::{Request, State},
+        extract::Request,
         response::{IntoResponse, Response},
     },
     logger::tracing,
     server::{
-        axum::middleware::Next,
+        axum::{Extension, middleware::Next},
         http::header::{AUTHORIZATION, WWW_AUTHENTICATE},
     },
 };
@@ -17,7 +17,7 @@ use crate::{app::server::AppState, backend::error::ServiceError, contracts::ApiT
 pub struct AuthenticatedApiToken(pub ApiToken);
 
 pub async fn require_api_token(
-    State(state): State<AppState>,
+    Extension(state): Extension<AppState>,
     mut request: Request,
     next: Next,
 ) -> Response {
