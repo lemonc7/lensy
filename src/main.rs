@@ -22,6 +22,8 @@ async fn main() -> dioxus::Result<()> {
 
 #[component]
 fn App() -> Element {
+    let _auth = app::auth::use_auth_provider();
+
     rsx! {
       document::Stylesheet { href: CSS }
     }

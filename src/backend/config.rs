@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fmt, fs};
 
 use dioxus::fullstack::serde::Deserialize;
 use garde::Validate;
@@ -37,6 +37,28 @@ pub struct ServerConfig {
     pub max_http_concurrent: usize,
 }
 
+#[derive(Default, Deserialize, Validate)]
+#[serde(crate = "dioxus::fullstack::serde", default)]
+pub struct AuthConfig {
+    #[garde(length(min = 6, max = 20))]
+    pub username: String,
+    #[garde(length(min = 6, max = 20))]
+    pub password: String,
+    #[garde(length(min = 16, max = 64))]
+    pub token: String,
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AuthConfig")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("api_token", &"[REDACTED]")
+            .finish()
+    }
+}
+
 #[derive(Debug, Deserialize, Validate)]
 #[serde(crate = "dioxus::fullstack::serde")]
 pub struct Config {
@@ -44,6 +66,9 @@ pub struct Config {
     pub server: ServerConfig,
     #[garde(dive)]
     pub image: ImageConfig,
+    #[serde(default)]
+    #[garde(dive)]
+    pub auth: AuthConfig,
 }
 
 pub fn load_config(path: &str) -> Result<Config, String> {
