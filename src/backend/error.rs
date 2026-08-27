@@ -85,14 +85,6 @@ pub enum ServiceError {
     RestoreConflict(PublicId),
     #[error("阻塞任务异常终止: {0}")]
     BlockingTask(#[from] tokio::task::JoinError),
-    #[error("API Token 名称必须去除首尾空格，且包含 1 到 100 个字符")]
-    InvalidApiTokenName,
-    #[error("API Token 过期时间必须晚于当前时间")]
-    InvalidApiTokenExpiration,
-    #[error("API Token 无效、已过期或已被撤销")]
-    InvalidApiToken,
-    #[error("API Token 不存在")]
-    ApiTokenNotFound,
     #[error("上传失败并且清理也失败；原始错误: {original}；清理错误: {cleanup}")]
     UploadCleanupFailed {
         #[source]

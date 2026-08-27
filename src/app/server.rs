@@ -21,8 +21,9 @@ use tower_http::{
 
 use crate::{
     App,
-    app::auth::require_api_token,
+    app::auth::middleware::require_authentication,
     backend::{
+        auth::AuthService,
         config::{ServerConfig, load_config},
         db::{Repository, connect},
         image::processor::ImageProcessor,
@@ -34,6 +35,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub service: Arc<Service>,
+    pub auth: Arc<AuthService>,
 }
 
 pub async fn run() -> dioxus::Result<()> {
@@ -44,10 +46,12 @@ pub async fn run() -> dioxus::Result<()> {
     let processor = ImageProcessor::new(config.image);
     let storage = Storage::new("data")?;
     let timezone = config.server.tz.parse::<Tz>().map_err(CapturedError::msg)?;
+    let auth =
+        AuthService::new(config.auth, &config.server.public_url).map_err(CapturedError::msg)?;
 
     let service = Service::new(repository, processor, storage, timezone);
 
-    let result = serve(&config.server, Arc::new(service)).await;
+    let result = serve(&config.server, Arc::new(service), Arc::new(auth)).await;
 
     tracing::info!("正在关闭数据库连接池");
     pool.close().await;
@@ -58,8 +62,12 @@ pub async fn run() -> dioxus::Result<()> {
     Ok(())
 }
 
-async fn serve(config: &ServerConfig, service: Arc<Service>) -> dioxus::Result<()> {
-    let state = AppState { service };
+async fn serve(
+    config: &ServerConfig,
+    service: Arc<Service>,
+    auth: Arc<AuthService>,
+) -> dioxus::Result<()> {
+    let state = AppState { service, auth };
 
     let request_timeout = Duration::from_secs(config.request_timeout);
     let http_layers = ServiceBuilder::new()
@@ -91,7 +99,7 @@ async fn serve(config: &ServerConfig, service: Arc<Service>) -> dioxus::Result<(
         .layer(CatchPanicLayer::new());
 
     let router = dioxus::server::router(App)
-        .layer(middleware::from_fn(require_api_token))
+        .layer(middleware::from_fn(require_authentication))
         .layer(Extension(state))
         .layer(http_layers);
 

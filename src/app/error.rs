@@ -1,15 +1,10 @@
-use crate::backend::{
-    error::{ImageProcessorError, ServiceError},
-    model::InvalidContractImageStatus,
-};
+use crate::backend::error::{ImageProcessorError, ServiceError};
 use dioxus::{logger::tracing, server::ServerFnError};
 
 impl From<ServiceError> for ServerFnError {
     fn from(value: ServiceError) -> Self {
         let (code, message) = match value {
             ServiceError::InvalidOriginalName
-            | ServiceError::InvalidApiTokenName
-            | ServiceError::InvalidApiTokenExpiration
             | ServiceError::ImageProcessor(ImageProcessorError::EmptyInput) => {
                 (400, value.to_string())
             }
@@ -25,10 +20,7 @@ impl From<ServiceError> for ServerFnError {
                 | ImageProcessorError::Decode(_),
             ) => (422, value.to_string()),
 
-            ServiceError::ImageNotFound | ServiceError::ApiTokenNotFound => {
-                (404, value.to_string())
-            }
-            ServiceError::InvalidApiToken => (401, value.to_string()),
+            ServiceError::ImageNotFound => (404, value.to_string()),
             ServiceError::RestoreConflict(_) | ServiceError::UploadInterrupted => {
                 (409, value.to_string())
             }
@@ -48,16 +40,6 @@ impl From<ServiceError> for ServerFnError {
         ServerFnError::ServerError {
             message,
             code,
-            details: None,
-        }
-    }
-}
-
-impl From<InvalidContractImageStatus> for ServerFnError {
-    fn from(value: InvalidContractImageStatus) -> Self {
-        ServerFnError::ServerError {
-            message: value.to_string(),
-            code: 500,
             details: None,
         }
     }

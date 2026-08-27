@@ -1,8 +1,6 @@
 use dioxus::fullstack::serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use std::fmt;
 
-pub const PAGE_SIZE: u32 = 20;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "server", derive(sqlx::Type))]
 #[cfg_attr(feature = "server", sqlx(transparent))]
@@ -82,32 +80,9 @@ pub struct ImagePageDto {
     pub next_cursor: Option<ImageCursor>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ApiToken {
-    pub id: i64,
-    pub name: String,
-    pub token_prefix: String,
-    pub created_at: i64,
-    pub last_used_at: Option<i64>,
-    pub expires_at: Option<i64>,
-    pub revoked_at: Option<i64>,
-}
-
-pub struct TokenSecret(pub(crate) String);
-
-impl fmt::Debug for TokenSecret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("TokenSecret([REDACTED])")
-    }
-}
-
-impl TokenSecret {
-    pub fn expose_secret(&self) -> &str {
-        &self.0
-    }
-}
-
-pub struct CreatedApiToken {
-    pub api_token: ApiToken,
-    pub secret: TokenSecret,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(crate = "dioxus::fullstack::serde")]
+pub struct AdminSessionDto {
+    pub username: String,
+    pub expires_at: i64,
 }

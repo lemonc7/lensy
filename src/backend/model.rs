@@ -1,9 +1,6 @@
 use std::fs::File;
 
-use crate::contracts::{
-    ApiToken, ImageCursor, ImageDto, ImagePageDto, PUBLIC_ID_LENGTH, PublicId, TokenSecret,
-};
-use sha2::{Digest, Sha256};
+use crate::contracts::{ImageCursor, ImageDto, ImagePageDto, PUBLIC_ID_LENGTH, PublicId};
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 // 248是不超过256最大62的倍数
@@ -45,14 +42,9 @@ pub struct StoredImage {
     pub deleted_at: Option<i64>,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("图片处于不能返回前端的内部状态: {0:?}")]
-pub struct InvalidContractImageStatus(Status);
-
-impl TryFrom<StoredImage> for ImageDto {
-    type Error = InvalidContractImageStatus;
-    fn try_from(value: StoredImage) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl From<StoredImage> for ImageDto {
+    fn from(value: StoredImage) -> Self {
+        Self {
             public_id: value.public_id,
             original_name: value.original_name,
             stored_size: value.stored_size,
@@ -61,7 +53,7 @@ impl TryFrom<StoredImage> for ImageDto {
             created_at: value.created_at,
             updated_at: value.updated_at,
             deleted_at: value.deleted_at,
-        })
+        }
     }
 }
 
@@ -95,19 +87,12 @@ pub struct ImagePage {
     pub next_cursor: Option<ImageCursor>,
 }
 
-impl TryFrom<ImagePage> for ImagePageDto {
-    type Error = InvalidContractImageStatus;
-    fn try_from(value: ImagePage) -> Result<Self, Self::Error> {
-        let images = value
-            .images
-            .into_iter()
-            .map(ImageDto::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(ImagePageDto {
-            images,
+impl From<ImagePage> for ImagePageDto {
+    fn from(value: ImagePage) -> Self {
+        Self {
+            images: value.images.into_iter().map(Into::into).collect(),
             next_cursor: value.next_cursor,
-        })
+        }
     }
 }
 
@@ -134,66 +119,6 @@ pub struct ImageCleanupFailure {
 pub enum ImageFileKind {
     Original,
     Thumbnail,
-}
-
-const API_TOKEN_PREFIX: &str = "lensy_";
-const API_TOKEN_RANDOM_LENGTH: usize = 32;
-const API_TOKEN_LENGTH: usize = API_TOKEN_PREFIX.len() + API_TOKEN_RANDOM_LENGTH;
-const API_TOKEN_PREFIX_LENGTH: usize = 12;
-
-impl TokenSecret {
-    pub fn generate() -> Result<Self, getrandom::Error> {
-        let random = generate_base62(API_TOKEN_RANDOM_LENGTH)?;
-        Ok(Self(format!("{API_TOKEN_PREFIX}{random}")))
-    }
-
-    pub fn parse(value: impl Into<String>) -> Result<Self, String> {
-        let value = value.into();
-        let valid = value.len() == API_TOKEN_LENGTH
-            && value.starts_with(API_TOKEN_PREFIX)
-            && value[API_TOKEN_PREFIX.len()..]
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric());
-        if !valid {
-            return Err("无效token".to_owned());
-        }
-
-        Ok(Self(value))
-    }
-
-    pub fn prefix(&self) -> &str {
-        &self.0[..API_TOKEN_PREFIX_LENGTH]
-    }
-
-    pub(crate) fn hash(&self) -> String {
-        hex::encode(Sha256::digest(self.0.as_bytes()))
-    }
-}
-
-pub(crate) struct StoredApiToken {
-    pub id: i64,
-    pub name: String,
-    pub token_prefix: String,
-    #[allow(dead_code)]
-    pub token_hash: String,
-    pub created_at: i64,
-    pub last_used_at: Option<i64>,
-    pub expires_at: Option<i64>,
-    pub revoked_at: Option<i64>,
-}
-
-impl From<StoredApiToken> for ApiToken {
-    fn from(value: StoredApiToken) -> Self {
-        Self {
-            id: value.id,
-            name: value.name,
-            token_prefix: value.token_prefix,
-            created_at: value.created_at,
-            last_used_at: value.last_used_at,
-            expires_at: value.expires_at,
-            revoked_at: value.revoked_at,
-        }
-    }
 }
 
 fn generate_base62(length: usize) -> Result<String, getrandom::Error> {
