@@ -1,7 +1,10 @@
-use crate::backend::{
-    db::Repository,
-    error::ImageWriteError,
-    model::{ImageCursor, NewImage, PublicId, Status, StoredImage},
+use crate::{
+    backend::{
+        db::Repository,
+        error::ImageWriteError,
+        model::{NewImage, Status, StoredImage},
+    },
+    contracts::{ImageCursor, PublicId},
 };
 
 impl Repository {
@@ -633,10 +636,13 @@ mod tests {
 
     use sqlx::SqlitePool;
 
-    use crate::backend::{
-        db::Repository,
-        error::ImageWriteError,
-        model::{ImageCursor, NewImage, PublicId, Status, StoredImage},
+    use crate::{
+        backend::{
+            db::Repository,
+            error::ImageWriteError,
+            model::{NewImage, Status, StoredImage},
+        },
+        contracts::{ImageCursor, PublicId},
     };
 
     #[sqlx::test]

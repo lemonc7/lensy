@@ -2,14 +2,17 @@ use std::sync::Arc;
 
 use chrono::{Datelike, Utc};
 
-use crate::backend::{
-    error::{ImageWriteError, ServiceError},
-    image::processor::ProcessedImage,
-    model::{
-        ImageCleanupFailure, ImageCleanupReport, ImageCursor, ImageFileKind, ImagePage, NewImage,
-        OpenedImage, PublicId, StoredImage, UploadImageResult,
+use crate::{
+    backend::{
+        error::{ImageWriteError, ServiceError},
+        image::processor::ProcessedImage,
+        model::{
+            ImageCleanupFailure, ImageCleanupReport, ImageFileKind, ImagePage, NewImage,
+            OpenedImage, StoredImage, UploadImageResult,
+        },
+        service::Service,
     },
-    service::Service,
+    contracts::{ImageCursor, PublicId},
 };
 
 const MAX_PUBLIC_ID_ATTEMPTS: usize = 5;
@@ -98,6 +101,7 @@ impl Service {
         } else {
             None
         };
+
         Ok(ImagePage {
             images,
             next_cursor,
@@ -535,14 +539,17 @@ mod tests {
     use sqlx::SqlitePool;
     use tempfile::tempdir;
 
-    use crate::backend::{
-        config::ImageConfig,
-        db::Repository,
-        error::ServiceError,
-        image::processor::ImageProcessor,
-        model::{ImageFileKind, NewImage, PublicId, Status, StoredImage},
-        service::Service,
-        storage::Storage,
+    use crate::{
+        backend::{
+            config::ImageConfig,
+            db::Repository,
+            error::ServiceError,
+            image::processor::ImageProcessor,
+            model::{ImageFileKind, NewImage, Status, StoredImage},
+            service::Service,
+            storage::Storage,
+        },
+        contracts::PublicId,
     };
 
     #[sqlx::test]
@@ -922,7 +929,7 @@ mod tests {
     fn test_service(pool: SqlitePool, data_path: &Path) -> Result<Service, Box<dyn Error>> {
         Ok(Service::new(
             Repository::new(pool),
-            ImageProcessor::new(test_image_config())?,
+            ImageProcessor::new(test_image_config()),
             Storage::new(data_path)?,
             Shanghai,
         ))

@@ -1,46 +1,22 @@
-use std::{fmt, fs::File};
+use std::fs::File;
 
+use crate::contracts::{
+    ApiToken, ImageCursor, ImageDto, ImagePageDto, PUBLIC_ID_LENGTH, PublicId, TokenSecret,
+};
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(transparent)]
-pub struct PublicId(String);
-
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const PUBLIC_ID_LENGTH: usize = 12;
 // 248是不超过256最大62的倍数
 const BYTE_LIMIT: u8 = 248;
 
 impl PublicId {
-    pub fn generate() -> Result<Self, getrandom::Error> {
+    pub(crate) fn generate() -> Result<Self, getrandom::Error> {
         generate_base62(PUBLIC_ID_LENGTH).map(Self)
-    }
-    pub fn parse(value: impl Into<String>) -> Result<Self, String> {
-        let value = value.into();
-        let err = format!("public_id 必须是 12 位 Base62 字符: {value}");
-
-        if value.len() != PUBLIC_ID_LENGTH {
-            return Err(err);
-        }
-
-        if !value.bytes().all(|b| b.is_ascii_alphanumeric()) {
-            return Err(err);
-        }
-        Ok(Self(value))
-    }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for PublicId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(rename_all = "lowercase")]
+#[sqlx(rename_all = "snake_case")]
 pub enum Status {
     Uploading,
     Active,
@@ -69,6 +45,26 @@ pub struct StoredImage {
     pub deleted_at: Option<i64>,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("图片处于不能返回前端的内部状态: {0:?}")]
+pub struct InvalidContractImageStatus(Status);
+
+impl TryFrom<StoredImage> for ImageDto {
+    type Error = InvalidContractImageStatus;
+    fn try_from(value: StoredImage) -> Result<Self, Self::Error> {
+        Ok(Self {
+            public_id: value.public_id,
+            original_name: value.original_name,
+            stored_size: value.stored_size,
+            width: value.width,
+            height: value.height,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            deleted_at: value.deleted_at,
+        })
+    }
+}
+
 pub struct NewImage<'a> {
     pub public_id: &'a PublicId,
     pub storage_key: &'a str,
@@ -85,6 +81,37 @@ pub struct NewImage<'a> {
     pub created_at: i64,
 }
 
+#[derive(Debug)]
+pub struct OpenedImage {
+    pub file: File,
+    pub content_type: &'static str,
+    pub content_length: i64,
+    pub original_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImagePage {
+    pub images: Vec<StoredImage>,
+    pub next_cursor: Option<ImageCursor>,
+}
+
+impl TryFrom<ImagePage> for ImagePageDto {
+    type Error = InvalidContractImageStatus;
+    fn try_from(value: ImagePage) -> Result<Self, Self::Error> {
+        let images = value
+            .images
+            .into_iter()
+            .map(ImageDto::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ImagePageDto {
+            images,
+            next_cursor: value.next_cursor,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct UploadImageResult {
     pub image: StoredImage,
     pub already_exists: bool,
@@ -104,37 +131,15 @@ pub struct ImageCleanupFailure {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ImageCursor {
-    pub timestamp: i64,
-    pub id: i64,
-}
-
-#[derive(Debug)]
-pub struct ImagePage {
-    pub images: Vec<StoredImage>,
-    pub next_cursor: Option<ImageCursor>,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum ImageFileKind {
     Original,
     Thumbnail,
-}
-
-#[derive(Debug)]
-pub struct OpenedImage {
-    pub file: File,
-    pub content_type: &'static str,
-    pub content_length: i64,
-    pub original_name: String,
 }
 
 const API_TOKEN_PREFIX: &str = "lensy_";
 const API_TOKEN_RANDOM_LENGTH: usize = 32;
 const API_TOKEN_LENGTH: usize = API_TOKEN_PREFIX.len() + API_TOKEN_RANDOM_LENGTH;
 const API_TOKEN_PREFIX_LENGTH: usize = 12;
-
-pub struct TokenSecret(String);
 
 impl TokenSecret {
     pub fn generate() -> Result<Self, getrandom::Error> {
@@ -156,10 +161,6 @@ impl TokenSecret {
         Ok(Self(value))
     }
 
-    pub fn expose_secret(&self) -> &str {
-        &self.0
-    }
-
     pub fn prefix(&self) -> &str {
         &self.0[..API_TOKEN_PREFIX_LENGTH]
     }
@@ -169,32 +170,11 @@ impl TokenSecret {
     }
 }
 
-impl fmt::Debug for TokenSecret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("TokenSecret([REDACTED])")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ApiToken {
-    pub id: i64,
-    pub name: String,
-    pub token_prefix: String,
-    pub created_at: i64,
-    pub last_used_at: Option<i64>,
-    pub expires_at: Option<i64>,
-    pub revoked_at: Option<i64>,
-}
-
-pub struct CreatedApiToken {
-    pub api_token: ApiToken,
-    pub secret: TokenSecret,
-}
-
 pub(crate) struct StoredApiToken {
     pub id: i64,
     pub name: String,
     pub token_prefix: String,
+    #[allow(dead_code)]
     pub token_hash: String,
     pub created_at: i64,
     pub last_used_at: Option<i64>,
@@ -204,28 +184,14 @@ pub(crate) struct StoredApiToken {
 
 impl From<StoredApiToken> for ApiToken {
     fn from(value: StoredApiToken) -> Self {
-        let StoredApiToken {
-            id,
-            name,
-            token_prefix,
-            token_hash,
-            created_at,
-            last_used_at,
-            expires_at,
-            revoked_at,
-        } = value;
-
-        // 哈希仅供数据库认证查询使用，不能进入对外模型。
-        drop(token_hash);
-
         Self {
-            id,
-            name,
-            token_prefix,
-            created_at,
-            last_used_at,
-            expires_at,
-            revoked_at,
+            id: value.id,
+            name: value.name,
+            token_prefix: value.token_prefix,
+            created_at: value.created_at,
+            last_used_at: value.last_used_at,
+            expires_at: value.expires_at,
+            revoked_at: value.revoked_at,
         }
     }
 }
