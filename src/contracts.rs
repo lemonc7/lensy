@@ -89,6 +89,7 @@ pub struct ImagePage {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(crate = "dioxus::fullstack::serde")]
+#[serde(rename_all = "snake_case")]
 pub enum ImageFileKind {
     Original,
     Thumbnail,

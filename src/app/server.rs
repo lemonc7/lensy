@@ -12,8 +12,8 @@ use dioxus::{
     logger::tracing,
     server::{
         axum::{
-            self, BoxError, Extension, error_handling::HandleErrorLayer, middleware,
-            response::IntoResponse,
+            self, BoxError, Extension, error_handling::HandleErrorLayer, extract::DefaultBodyLimit,
+            middleware, response::IntoResponse,
         },
         http::Request,
     },
@@ -53,6 +53,11 @@ pub struct AppState {
 pub async fn run() -> dioxus::Result<()> {
     let config = load_config("./config/config.toml").map_err(CapturedError::msg)?;
 
+    // 上传上限必须在这里就取出来：config.image 与 config.auth 稍后会被移走，之后就读不到了。
+    // axum 的 Multipart 默认只接受 2MB，不放开的话 image.max_upload_size 配多大都不会生效，
+    // 请求会在提取阶段被拒掉，根本走不到 ImageProcessor 的校验。留 1MiB 余量给 multipart 开销。
+    let max_upload_bytes = config.image.max_upload_size.saturating_add(1024 * 1024);
+
     let pool = connect("sqlite://data/lensy.db").await?;
     let repository = Repository::new(pool.clone());
     let processor = ImageProcessor::new(config.image);
@@ -71,7 +76,13 @@ pub async fn run() -> dioxus::Result<()> {
         Duration::from_secs(config.server.maintenance_interval),
     );
 
-    let result = serve(&config.server, Arc::clone(&service), Arc::clone(&auth)).await;
+    let result = serve(
+        &config.server,
+        max_upload_bytes,
+        Arc::clone(&service),
+        Arc::clone(&auth),
+    )
+    .await;
 
     // 无论是正常关闭还是 serve 失败，都不再需要维护任务
     maintenance.abort();
@@ -85,8 +96,11 @@ pub async fn run() -> dioxus::Result<()> {
     Ok(())
 }
 
+// max_upload_bytes 由调用方传入：config.auth 在构造 AuthService 时已被移走，
+// 此处若再整体借用 config 会触发"部分移动后借用"，用字段级借用 + 显式参数绕开。
 async fn serve(
     config: &ServerConfig,
+    max_upload_bytes: usize,
     service: Arc<Service>,
     auth: Arc<AuthService>,
 ) -> dioxus::Result<()> {
@@ -122,6 +136,8 @@ async fn serve(
             StatusCode::GATEWAY_TIMEOUT,
             request_timeout,
         ))
+        // 必须在读取 body 之前生效，否则上传会在 Multipart 提取阶段被 2MB 默认限制挡下
+        .layer(DefaultBodyLimit::max(max_upload_bytes))
         .layer(CatchPanicLayer::new());
 
     let router = dioxus::server::router(App)
