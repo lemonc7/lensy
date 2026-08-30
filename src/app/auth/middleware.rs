@@ -13,12 +13,12 @@ use dioxus::{
     },
 };
 
-use crate::{app::server::AppState, contracts::AdminSessionDto};
+use crate::{app::server::AppState, contracts::AdminSession};
 
 #[derive(Clone)]
 pub(crate) struct AuthenticatedAdmin {
     pub session_id: String,
-    pub session: AdminSessionDto,
+    pub session: AdminSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

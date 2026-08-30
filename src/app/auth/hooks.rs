@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::contracts::AdminSessionDto;
+use crate::contracts::AdminSession;
 
 #[cfg(feature = "web")]
 use super::server_functions::{current_admin, login_admin, logout_admin};
@@ -9,7 +9,7 @@ use super::server_functions::{current_admin, login_admin, logout_admin};
 pub enum AuthStatus {
     Checking,
     Anonymous,
-    Authenticated(AdminSessionDto),
+    Authenticated(AdminSession),
 }
 
 #[derive(Clone, Copy)]
@@ -22,11 +22,7 @@ impl AuthController {
         self.status.into()
     }
 
-    pub async fn login(
-        self,
-        username: String,
-        password: String,
-    ) -> Result<AdminSessionDto, String> {
+    pub async fn login(self, username: String, password: String) -> Result<AdminSession, String> {
         #[cfg(feature = "web")]
         {
             let username = username.trim();
@@ -112,6 +108,12 @@ pub fn use_auth() -> AuthController {
 fn login_error_message(error: ServerFnError) -> String {
     if is_unauthorized(&error) {
         "用户名或密码错误".to_owned()
+    } else if let ServerFnError::ServerError {
+        message, code: 429, ..
+    } = &error
+    {
+        // 服务端已经带上剩余等待时间
+        message.clone()
     } else {
         format!("登录失败: {error}")
     }

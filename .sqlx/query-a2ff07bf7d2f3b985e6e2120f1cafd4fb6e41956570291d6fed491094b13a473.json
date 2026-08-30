@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE images\n            SET\n                status = 'deleting',\n                updated_at = ?\n            WHERE id = ?\n              AND status = 'uploading'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a2ff07bf7d2f3b985e6e2120f1cafd4fb6e41956570291d6fed491094b13a473"
+}

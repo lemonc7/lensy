@@ -55,7 +55,7 @@ impl<'de> Deserialize<'de> for PublicId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "dioxus::fullstack::serde")]
-pub struct ImageDto {
+pub struct Image {
     pub public_id: PublicId,
     pub original_name: String,
     pub stored_size: i64,
@@ -64,6 +64,13 @@ pub struct ImageDto {
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(crate = "dioxus::fullstack::serde")]
+pub struct UploadImage {
+    pub image: Image,
+    pub already_exists: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -75,14 +82,21 @@ pub struct ImageCursor {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(crate = "dioxus::fullstack::serde")]
-pub struct ImagePageDto {
-    pub images: Vec<ImageDto>,
+pub struct ImagePage {
+    pub images: Vec<Image>,
     pub next_cursor: Option<ImageCursor>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(crate = "dioxus::fullstack::serde")]
+pub enum ImageFileKind {
+    Original,
+    Thumbnail,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "dioxus::fullstack::serde")]
-pub struct AdminSessionDto {
+pub struct AdminSession {
     pub username: String,
     pub expires_at: i64,
 }
