@@ -1,4 +1,4 @@
-use dioxus::prelude::*;
+use dioxus::{fullstack::MultipartFormData, prelude::*};
 
 #[cfg(feature = "server")]
 use crate::app::server::AppState;
@@ -94,10 +94,19 @@ pub async fn get_image(
 }
 
 #[server(state: Extension<AppState>)]
-pub async fn upload_image(file_name: String, data: Vec<u8>) -> ServerFnResult<UploadImage> {
+pub async fn upload_image(mut data: MultipartFormData) -> ServerFnResult<UploadImage> {
+    let field = data
+        .next_field()
+        .await
+        .or_bad_request("上传内容无法解析")?
+        .or_bad_request("上传内容为空")?;
+
+    let file_name = field.file_name().unwrap_or("upload").to_owned();
+    let bytes = field.bytes().await.or_bad_request("上传内容读取失败")?;
+
     state
         .service
-        .upload_image(&file_name, data)
+        .upload_image(&file_name, bytes.to_vec())
         .await
         .map_err(Into::into)
 }
