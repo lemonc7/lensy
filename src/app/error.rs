@@ -1,5 +1,5 @@
 use crate::backend::error::{ImageProcessorError, ServiceError};
-use dioxus::{logger::tracing, server::ServerFnError};
+use dioxus::{fullstack::StatusCode, logger::tracing, server::ServerFnError};
 
 impl From<ServiceError> for ServerFnError {
     fn from(value: ServiceError) -> Self {
@@ -41,6 +41,18 @@ impl From<ServiceError> for ServerFnError {
             message,
             code,
             details: None,
+        }
+    }
+}
+
+impl From<ServiceError> for StatusCode {
+    fn from(value: ServiceError) -> Self {
+        match value {
+            ServiceError::ImageNotFound => StatusCode::NOT_FOUND,
+            error => {
+                tracing::error!(?error, "读取图片失败");
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }

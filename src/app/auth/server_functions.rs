@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::contracts::AdminSessionDto;
+use crate::contracts::AdminSession;
 
 #[cfg(feature = "server")]
 use dioxus::{
@@ -10,20 +10,48 @@ use dioxus::{
 };
 
 #[cfg(feature = "server")]
-use crate::{app::auth::middleware::AuthenticatedAdmin, app::server::AppState};
+use crate::{
+    app::{auth::middleware::AuthenticatedAdmin, server::AppState},
+    backend::auth::LoginOutcome,
+};
 
 #[post("/auth/login", state: Extension<AppState>)]
-pub async fn login_admin(username: String, password: String) -> ServerFnResult<AdminSessionDto> {
-    let Some((session_id, session)) = state
+pub async fn login_admin(username: String, password: String) -> ServerFnResult<AdminSession> {
+    let outcome = state
         .auth
         .create_admin_session(&username, &password)
         .await
         .map_err(|error| {
             tracing::error!(?error, "生成管理员会话失败");
-            server_error(500, "服务器内部错误")
-        })?
-    else {
-        return Err(server_error(401, "用户名或密码错误"));
+            ServerFnError::ServerError {
+                message: "服务器内部错误".to_string(),
+                code: 500,
+                details: None,
+            }
+        })?;
+
+    let (session_id, session) = match outcome {
+        LoginOutcome::Granted {
+            session_id,
+            session,
+        } => (session_id, session),
+        LoginOutcome::InvalidCredentials => {
+            return Err(ServerFnError::ServerError {
+                message: "用户名或密码错误".to_string(),
+                code: 401,
+                details: None,
+            });
+        }
+
+        LoginOutcome::TooManyAttempts {
+            retry_after_seconds,
+        } => {
+            return Err(ServerFnError::ServerError {
+                message: format!("登录失败次数过多，请 {retry_after_seconds} 秒后重试"),
+                code: 429,
+                details: None,
+            });
+        }
     };
 
     set_cookie(state.auth.session_cookie(&session_id))?;
@@ -34,7 +62,7 @@ pub async fn login_admin(username: String, password: String) -> ServerFnResult<A
     "/auth/session",
     authenticated: Extension<AuthenticatedAdmin>
 )]
-pub async fn current_admin() -> ServerFnResult<AdminSessionDto> {
+pub async fn current_admin() -> ServerFnResult<AdminSession> {
     Ok(authenticated.0.session)
 }
 
@@ -53,18 +81,8 @@ pub async fn logout_admin() -> ServerFnResult<()> {
 
 #[cfg(feature = "server")]
 fn set_cookie(cookie: String) -> ServerFnResult<()> {
-    let value = HeaderValue::from_str(&cookie).map_err(|_| server_error(500, "服务器内部错误"))?;
-    let context =
-        FullstackContext::current().ok_or_else(|| server_error(500, "服务器响应上下文不可用"))?;
+    let value = HeaderValue::from_str(&cookie).or_internal_server_error("服务器内部错误")?;
+    let context = FullstackContext::current().or_internal_server_error("服务器响应上下文不可用")?;
     context.add_response_header(SET_COOKIE, value);
     Ok(())
-}
-
-#[cfg(feature = "server")]
-fn server_error(code: u16, message: impl Into<String>) -> ServerFnError {
-    ServerFnError::ServerError {
-        message: message.into(),
-        code,
-        details: None,
-    }
 }

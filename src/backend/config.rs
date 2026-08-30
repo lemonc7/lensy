@@ -35,6 +35,9 @@ pub struct ServerConfig {
     pub request_timeout: u64,
     #[garde(range(min = 1))]
     pub max_http_concurrent: usize,
+    // 后台维护任务间隔：清理过期会话、恢复中断的上传与删除
+    #[garde(range(min = 1))]
+    pub maintenance_interval: u64,
 }
 
 #[derive(Default, Deserialize, Validate)]

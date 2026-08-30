@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM images\n            WHERE id = ?\n              AND status = 'deleting'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a6d5349c1cfa1c9e2a2a4f8368f9a08a8c2cbf491751a60c51f9879fcd2f9916"
+}

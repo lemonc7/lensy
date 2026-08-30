@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use crate::contracts::{ImageCursor, ImageDto, ImagePageDto, PUBLIC_ID_LENGTH, PublicId};
+use crate::contracts::{Image, PUBLIC_ID_LENGTH, PublicId};
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 // 248是不超过256最大62的倍数
@@ -42,7 +42,7 @@ pub struct StoredImage {
     pub deleted_at: Option<i64>,
 }
 
-impl From<StoredImage> for ImageDto {
+impl From<StoredImage> for Image {
     fn from(value: StoredImage) -> Self {
         Self {
             public_id: value.public_id,
@@ -81,27 +81,6 @@ pub struct OpenedImage {
     pub original_name: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct ImagePage {
-    pub images: Vec<StoredImage>,
-    pub next_cursor: Option<ImageCursor>,
-}
-
-impl From<ImagePage> for ImagePageDto {
-    fn from(value: ImagePage) -> Self {
-        Self {
-            images: value.images.into_iter().map(Into::into).collect(),
-            next_cursor: value.next_cursor,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UploadImageResult {
-    pub image: StoredImage,
-    pub already_exists: bool,
-}
-
 #[derive(Debug, Default)]
 pub struct ImageCleanupReport {
     pub claimed_uploads: usize,
@@ -113,12 +92,6 @@ pub struct ImageCleanupReport {
 pub struct ImageCleanupFailure {
     pub public_id: PublicId,
     pub error: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ImageFileKind {
-    Original,
-    Thumbnail,
 }
 
 fn generate_base62(length: usize) -> Result<String, getrandom::Error> {

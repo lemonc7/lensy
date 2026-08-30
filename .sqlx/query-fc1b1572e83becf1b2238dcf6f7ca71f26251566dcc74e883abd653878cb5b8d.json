@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT status, updated_at FROM images WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "status",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "name": "updated_at",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "images",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "fc1b1572e83becf1b2238dcf6f7ca71f26251566dcc74e883abd653878cb5b8d"
+}

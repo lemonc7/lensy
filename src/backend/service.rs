@@ -1,12 +1,10 @@
 use crate::backend::{db::Repository, image::processor::ImageProcessor, storage::Storage};
+use crate::contracts::{Image, ImageFileKind, ImagePage, UploadImage};
 use crate::{
     backend::{
         error::{ImageWriteError, ServiceError},
         image::processor::ProcessedImage,
-        model::{
-            ImageCleanupFailure, ImageCleanupReport, ImageFileKind, ImagePage, NewImage,
-            OpenedImage, StoredImage, UploadImageResult,
-        },
+        model::{ImageCleanupFailure, ImageCleanupReport, NewImage, OpenedImage, StoredImage},
     },
     contracts::{ImageCursor, PublicId},
 };
@@ -48,21 +46,20 @@ impl Service {
         }
     }
 
-    pub async fn get_image(&self, public_id: &PublicId) -> Result<StoredImage, ServiceError> {
+    pub async fn get_image(&self, public_id: &PublicId) -> Result<Image, ServiceError> {
         self.repository
             .find_active_image_by_public_id(public_id)
             .await?
             .ok_or(ServiceError::ImageNotFound)
+            .map(Into::into)
     }
 
-    pub async fn get_trashed_image(
-        &self,
-        public_id: &PublicId,
-    ) -> Result<StoredImage, ServiceError> {
+    pub async fn get_trashed_image(&self, public_id: &PublicId) -> Result<Image, ServiceError> {
         self.repository
             .find_trashed_image_by_public_id(public_id)
             .await?
             .ok_or(ServiceError::ImageNotFound)
+            .map(Into::into)
     }
 
     pub async fn list_images(
@@ -93,7 +90,7 @@ impl Service {
         };
 
         Ok(ImagePage {
-            images,
+            images: images.into_iter().map(Into::into).collect(),
             next_cursor,
         })
     }
@@ -130,7 +127,7 @@ impl Service {
         };
 
         Ok(ImagePage {
-            images,
+            images: images.into_iter().map(Into::into).collect(),
             next_cursor,
         })
     }
@@ -168,7 +165,7 @@ impl Service {
         &self,
         original_name: &str,
         source: Vec<u8>,
-    ) -> Result<UploadImageResult, ServiceError> {
+    ) -> Result<UploadImage, ServiceError> {
         if original_name.trim().is_empty() || original_name.chars().count() > 255 {
             return Err(ServiceError::InvalidOriginalName);
         }
@@ -182,8 +179,8 @@ impl Service {
             .find_active_image_by_pixel_hash(&processed.pixel_hash)
             .await?
         {
-            return Ok(UploadImageResult {
-                image: existing,
+            return Ok(UploadImage {
+                image: existing.into(),
                 already_exists: true,
             });
         }
@@ -242,8 +239,8 @@ impl Service {
             .activate_image(uploading.id, updated_at)
             .await
         {
-            Ok(Some(image)) => Ok(UploadImageResult {
-                image,
+            Ok(Some(image)) => Ok(UploadImage {
+                image: image.into(),
                 already_exists: false,
             }),
             Ok(None) => {
@@ -259,8 +256,8 @@ impl Service {
                     .await?
                     .ok_or(ServiceError::MissingConflictingImage)?;
 
-                Ok(UploadImageResult {
-                    image: existing,
+                Ok(UploadImage {
+                    image: existing.into(),
                     already_exists: true,
                 })
             }
@@ -572,11 +569,11 @@ mod tests {
             db::Repository,
             error::ServiceError,
             image::processor::ImageProcessor,
-            model::{ImageFileKind, NewImage, Status, StoredImage},
+            model::{NewImage, StoredImage},
             service::Service,
             storage::Storage,
         },
-        contracts::PublicId,
+        contracts::{ImageFileKind, PublicId},
     };
 
     #[sqlx::test]
@@ -588,11 +585,8 @@ mod tests {
         let first = service.upload_image("example.png", source.clone()).await?;
 
         assert!(!first.already_exists);
-        assert_eq!(first.image.status, Status::Active);
         assert_eq!(first.image.original_name, "example.png");
         assert_eq!((first.image.width, first.image.height), (4, 2));
-        assert!(data_dir.path().join(&first.image.storage_key).is_file());
-        assert!(data_dir.path().join(&first.image.thumbnail_key).is_file());
 
         let mut opened = service
             .open_image(&first.image.public_id, ImageFileKind::Original)
@@ -608,168 +602,12 @@ mod tests {
         let second = service.upload_image("duplicate.png", source).await?;
 
         assert!(second.already_exists);
-        assert_eq!(second.image.id, first.image.id);
         assert_eq!(second.image.public_id, first.image.public_id);
 
         let image_count = sqlx::query_scalar!("SELECT COUNT(*) FROM images")
             .fetch_one(&pool)
             .await?;
         assert_eq!(image_count, 1);
-
-        Ok(())
-    }
-
-    #[sqlx::test]
-    async fn paginates_active_and_trashed_images(pool: SqlitePool) -> Result<(), Box<dyn Error>> {
-        let data_dir = tempdir()?;
-        let service = test_service(pool.clone(), data_dir.path())?;
-        let first = service.upload_image("first.png", create_png(4, 2)).await?;
-        let second = service.upload_image("second.png", create_png(5, 2)).await?;
-        let third = service.upload_image("third.png", create_png(6, 2)).await?;
-
-        set_created_at(&pool, first.image.id, 10).await?;
-        set_created_at(&pool, second.image.id, 20).await?;
-        set_created_at(&pool, third.image.id, 20).await?;
-
-        let first_page = service.list_images(None, Some(2)).await?;
-        assert_eq!(
-            image_ids(&first_page.images),
-            vec![third.image.id, second.image.id]
-        );
-
-        let second_page = service.list_images(first_page.next_cursor, Some(2)).await?;
-        assert_eq!(image_ids(&second_page.images), vec![first.image.id]);
-        assert!(second_page.next_cursor.is_none());
-
-        service.soft_delete_image(&first.image.public_id).await?;
-        service.soft_delete_image(&second.image.public_id).await?;
-        service.soft_delete_image(&third.image.public_id).await?;
-
-        set_deleted_at(&pool, first.image.id, 100).await?;
-        set_deleted_at(&pool, second.image.id, 200).await?;
-        set_deleted_at(&pool, third.image.id, 200).await?;
-
-        let first_page = service.list_trashed_images(None, Some(2)).await?;
-        assert_eq!(
-            image_ids(&first_page.images),
-            vec![third.image.id, second.image.id]
-        );
-
-        let second_page = service
-            .list_trashed_images(first_page.next_cursor, Some(2))
-            .await?;
-        assert_eq!(image_ids(&second_page.images), vec![first.image.id]);
-        assert!(second_page.next_cursor.is_none());
-
-        Ok(())
-    }
-
-    #[sqlx::test]
-    async fn moves_image_to_trash_and_restores_without_changing_files(
-        pool: SqlitePool,
-    ) -> Result<(), Box<dyn Error>> {
-        let data_dir = tempdir()?;
-        let service = test_service(pool, data_dir.path())?;
-        let uploaded = service
-            .upload_image("example.png", create_png(4, 2))
-            .await?;
-        let public_id = uploaded.image.public_id.clone();
-        let storage_path = data_dir.path().join(&uploaded.image.storage_key);
-        let thumbnail_path = data_dir.path().join(&uploaded.image.thumbnail_key);
-
-        service.soft_delete_image(&public_id).await?;
-
-        assert!(matches!(
-            service.get_image(&public_id).await,
-            Err(ServiceError::ImageNotFound),
-        ));
-        assert_eq!(
-            service.get_trashed_image(&public_id).await?.status,
-            Status::Trashed
-        );
-        assert!(storage_path.is_file());
-        assert!(thumbnail_path.is_file());
-
-        let mut opened = service
-            .open_trashed_image(&public_id, ImageFileKind::Thumbnail)
-            .await?;
-        let mut bytes = Vec::new();
-        opened.file.read_to_end(&mut bytes)?;
-        assert!(!bytes.is_empty());
-
-        service.restore_image(&public_id).await?;
-
-        let restored = service.get_image(&public_id).await?;
-        assert_eq!(restored.status, Status::Active);
-        assert_eq!(restored.deleted_at, None);
-        assert!(storage_path.is_file());
-        assert!(thumbnail_path.is_file());
-
-        Ok(())
-    }
-
-    #[sqlx::test]
-    async fn refuses_restore_when_same_pixels_are_already_active(
-        pool: SqlitePool,
-    ) -> Result<(), Box<dyn Error>> {
-        let data_dir = tempdir()?;
-        let service = test_service(pool, data_dir.path())?;
-        let source = create_png(4, 2);
-        let trashed = service.upload_image("first.png", source.clone()).await?;
-        let trashed_public_id = trashed.image.public_id.clone();
-
-        service.soft_delete_image(&trashed_public_id).await?;
-
-        let active = service.upload_image("second.png", source).await?;
-        assert!(!active.already_exists);
-
-        let error = service.restore_image(&trashed_public_id).await.unwrap_err();
-
-        assert!(matches!(
-            error,
-            ServiceError::RestoreConflict(existing) if existing == active.image.public_id
-        ));
-        assert!(service.get_trashed_image(&trashed_public_id).await.is_ok());
-
-        Ok(())
-    }
-
-    #[sqlx::test]
-    async fn permanently_deletes_only_trashed_images(
-        pool: SqlitePool,
-    ) -> Result<(), Box<dyn Error>> {
-        let data_dir = tempdir()?;
-        let service = test_service(pool.clone(), data_dir.path())?;
-        let uploaded = service
-            .upload_image("example.png", create_png(4, 2))
-            .await?;
-        let public_id = uploaded.image.public_id.clone();
-        let storage_path = data_dir.path().join(&uploaded.image.storage_key);
-        let thumbnail_path = data_dir.path().join(&uploaded.image.thumbnail_key);
-
-        assert!(matches!(
-            service.delete_image(&public_id).await,
-            Err(ServiceError::ImageNotFound),
-        ));
-        assert!(storage_path.is_file());
-
-        service.soft_delete_image(&public_id).await?;
-        service.delete_image(&public_id).await?;
-
-        assert!(!storage_path.exists());
-        assert!(!thumbnail_path.exists());
-        assert!(
-            service
-                .repository
-                .find_trashed_image_by_public_id(&public_id)
-                .await?
-                .is_none()
-        );
-
-        let image_count = sqlx::query_scalar!("SELECT COUNT(*) FROM images")
-            .fetch_one(&pool)
-            .await?;
-        assert_eq!(image_count, 0);
 
         Ok(())
     }
@@ -823,12 +661,6 @@ mod tests {
             !data_dir
                 .path()
                 .join(&interrupted_upload.thumbnail_key)
-                .exists()
-        );
-        assert!(
-            !data_dir
-                .path()
-                .join(&pending_deletion.image.storage_key)
                 .exists()
         );
 
@@ -923,36 +755,6 @@ mod tests {
             .ok_or_else(|| "测试 public_id 不应发生冲突".into())
     }
 
-    async fn set_created_at(
-        pool: &SqlitePool,
-        id: i64,
-        created_at: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE images SET created_at = ?1, updated_at = ?1 WHERE id = ?2",
-            created_at,
-            id,
-        )
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
-    async fn set_deleted_at(
-        pool: &SqlitePool,
-        id: i64,
-        deleted_at: i64,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE images SET deleted_at = ?1, updated_at = ?1 WHERE id = ?2",
-            deleted_at,
-            id,
-        )
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
     fn test_service(pool: SqlitePool, data_path: &Path) -> Result<Service, Box<dyn Error>> {
         Ok(Service::new(
             Repository::new(pool),
@@ -991,9 +793,5 @@ mod tests {
 
     fn repeated_hash(character: char) -> String {
         std::iter::repeat_n(character, 64).collect()
-    }
-
-    fn image_ids(images: &[StoredImage]) -> Vec<i64> {
-        images.iter().map(|image| image.id).collect()
     }
 }

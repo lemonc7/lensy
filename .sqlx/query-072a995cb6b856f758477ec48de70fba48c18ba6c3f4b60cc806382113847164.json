@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE images\n            SET updated_at = MAX(updated_at + 1, ?)\n            WHERE id = ?\n              AND status = 'deleting'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "072a995cb6b856f758477ec48de70fba48c18ba6c3f4b60cc806382113847164"
+}

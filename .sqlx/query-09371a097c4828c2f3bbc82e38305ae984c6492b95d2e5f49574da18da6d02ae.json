@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE images\n            SET\n                status = 'active',\n                deleted_at = NULL,\n                updated_at = ?\n            WHERE public_id = ?\n              AND status = 'trashed'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "09371a097c4828c2f3bbc82e38305ae984c6492b95d2e5f49574da18da6d02ae"
+}
