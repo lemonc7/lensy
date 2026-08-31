@@ -47,6 +47,11 @@ tower-http = { version = "0.7", optional = true, features = [
   "trace",
   "catch-panic",
 ] }
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+  "ansi",
+  "env-filter",
+  "fmt",
+], optional = true }
 
 
 [features]
@@ -70,4 +75,5 @@ server = [
   "dep:tokio-util",
   "dep:tower",
   "dep:tower-http",
+  "dep:tracing-subscriber",
 ]

@@ -45,9 +45,9 @@ pub struct ServerConfig {
 pub struct AuthConfig {
     #[garde(length(min = 6, max = 20))]
     pub username: String,
-    #[garde(length(min = 6, max = 20))]
+    #[garde(length(min = 6, max = 128))]
     pub password: String,
-    #[garde(length(min = 16, max = 64))]
+    #[garde(length(min = 32, max = 64))]
     pub token: String,
 }
 

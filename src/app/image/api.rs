@@ -1,15 +1,13 @@
 use dioxus::{
-    fullstack::{
-        Json, StatusCode,
-        body::Body,
-        extract::{Multipart, Path},
-        response::Response,
-    },
+    fullstack::{Json, StatusCode, body::Body, extract::Path, response::Response},
     logger::tracing,
     prelude::*,
     server::{
-        axum::Extension,
-        http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+        axum::{Extension, body::Bytes},
+        http::{
+            HeaderMap,
+            header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+        },
     },
 };
 use tokio_util::io::ReaderStream;
@@ -45,17 +43,15 @@ pub async fn get_image(
 
 pub async fn upload_image(
     Extension(state): Extension<AppState>,
-    mut multipart: Multipart,
+    headers: HeaderMap,
+    bytes: Bytes,
 ) -> Result<Json<UploadImage>, StatusCode> {
-    let field = multipart
-        .next_field()
-        .await
+    let filename = headers
+        .get("x-filename")
+        .map(|value| value.to_str().map(str::to_owned))
+        .transpose()
         .map_err(|_| StatusCode::BAD_REQUEST)?
-        .ok_or(StatusCode::BAD_REQUEST)?;
-
-    let filename = field.file_name().unwrap_or("upload").to_owned();
-
-    let bytes = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+        .unwrap_or_else(|| "upload".to_owned());
 
     let result = state
         .service
