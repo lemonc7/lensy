@@ -1,4 +1,7 @@
-use dioxus::{fullstack::MultipartFormData, prelude::*};
+use dioxus::{
+    fullstack::{MultipartFormData, response::Response},
+    prelude::*,
+};
 
 #[cfg(feature = "server")]
 use crate::app::server::AppState;
@@ -6,14 +9,16 @@ use crate::app::server::AppState;
 use dioxus::server::axum::Extension;
 #[cfg(feature = "server")]
 use dioxus::{
-    fullstack::{body::Body, response::Response},
+    fullstack::body::Body,
     logger::tracing,
     server::http::header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
 };
 #[cfg(feature = "server")]
 use tokio_util::io::ReaderStream;
 
-use crate::contracts::{ImageCursor, ImageFileKind, ImagePage, PublicId, UploadImage};
+use crate::contracts::{
+    ImageCollection, ImageCursor, ImageFileKind, ImagePage, PublicId, UploadImage,
+};
 
 #[server(state: Extension<AppState>)]
 pub async fn list_images(
@@ -66,18 +71,24 @@ pub async fn delete_image(public_id: PublicId) -> ServerFnResult<()> {
         .map_err(Into::into)
 }
 
-#[get("/api/image/{public_id}?variant", state:Extension<AppState>)]
+#[get("/api/image/{collection}/{variant}/{public_id}", state:Extension<AppState>)]
 pub async fn get_image(
+    collection: ImageCollection,
+    variant: ImageFileKind,
     public_id: PublicId,
-    variant: Option<ImageFileKind>,
 ) -> Result<Response, StatusCode> {
-    let variant = variant.unwrap_or(ImageFileKind::Original);
-
-    let opened = state
-        .service
-        .open_image(&public_id, variant)
-        .await
-        .map_err(StatusCode::from)?;
+    let opened = match collection {
+        ImageCollection::Active => state
+            .service
+            .open_image(&public_id, variant)
+            .await
+            .map_err(StatusCode::from)?,
+        ImageCollection::Trashed => state
+            .service
+            .open_trashed_image(&public_id, variant)
+            .await
+            .map_err(StatusCode::from)?,
+    };
 
     let file = tokio::fs::File::from_std(opened.file);
     let body = Body::from_stream(ReaderStream::new(file));
@@ -85,7 +96,7 @@ pub async fn get_image(
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, opened.content_type)
         .header(CONTENT_LENGTH, opened.content_length)
-        .header(CACHE_CONTROL, "public, max-age=86400, immutable")
+        .header(CACHE_CONTROL, "private, max-age=86400")
         .body(body)
         .map_err(|error| {
             tracing::error!(?error, %public_id, "构造图片响应失败");
