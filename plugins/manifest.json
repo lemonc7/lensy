@@ -1,7 +1,7 @@
 {
   "id": "lensy-uploader",
   "name": "Lensy Uploader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.11.4",
   "description": "Upload pasted clipboard images to Lensy and insert public Markdown links.",
   "author": "lemonc7",

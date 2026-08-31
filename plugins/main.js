@@ -183,7 +183,7 @@ function normalizeServerUrl(value) {
 function clipboardFilename(mime) {
   const extension = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
   const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 17);
-  return `clipboard-${timestamp}.${extension}`;
+  return `${timestamp}.${extension}`;
 }
 
 // 替换占位符
