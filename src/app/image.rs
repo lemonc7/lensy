@@ -1,4 +1,7 @@
 #[cfg(feature = "server")]
 pub mod api;
-pub mod hooks;
-pub mod server_functions;
+mod hooks;
+mod server_functions;
+
+pub use hooks::*;
+pub use server_functions::*;
