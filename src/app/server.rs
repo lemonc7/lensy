@@ -142,7 +142,7 @@ async fn serve(
 
     let router = dioxus::server::router(App)
         .route("/api/v1/images", post(api::upload_image))
-        .route("/i/{public_id}.webp", get(api::get_image))
+        .route("/i/{public_id}", get(api::get_image))
         .layer(middleware::from_fn(require_authentication))
         .layer(Extension(state))
         .layer(http_layers);

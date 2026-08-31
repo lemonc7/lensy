@@ -90,6 +90,10 @@ ON images(pixel_hash)
 WHERE status = 'active';
 
 -- 恢复任务
-CREATE INDEX idx_image_recovery
-ON images(status, updated_at)
-WHERE status IN ('uploading', 'deleting');
+CREATE INDEX idx_image_uploading_updated
+ON images(updated_at ASC, id ASC)
+WHERE status = 'uploading';
+
+CREATE INDEX idx_image_deleting_updated
+ON images(updated_at ASC, id ASC)
+WHERE status = 'deleting';

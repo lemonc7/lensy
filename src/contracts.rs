@@ -4,7 +4,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "server", derive(sqlx::Type))]
 #[cfg_attr(feature = "server", sqlx(transparent))]
-pub struct PublicId(pub(crate) String);
+pub struct PublicId(pub(super) String);
 
 pub const PUBLIC_ID_LENGTH: usize = 12;
 
@@ -53,7 +53,7 @@ impl<'de> Deserialize<'de> for PublicId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "dioxus::fullstack::serde")]
 pub struct Image {
     pub public_id: PublicId,
@@ -73,26 +73,52 @@ pub struct UploadImage {
     pub already_exists: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "dioxus::fullstack::serde")]
 pub struct ImageCursor {
     pub timestamp: i64,
     pub id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "dioxus::fullstack::serde")]
 pub struct ImagePage {
     pub images: Vec<Image>,
     pub next_cursor: Option<ImageCursor>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(crate = "dioxus::fullstack::serde")]
 #[serde(rename_all = "snake_case")]
 pub enum ImageFileKind {
     Original,
     Thumbnail,
+}
+
+impl fmt::Display for ImageFileKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageFileKind::Original => f.write_str("original"),
+            ImageFileKind::Thumbnail => f.write_str("thumbnail"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(crate = "dioxus::fullstack::serde")]
+#[serde(rename_all = "snake_case")]
+pub enum ImageCollection {
+    Active,
+    Trashed,
+}
+
+impl fmt::Display for ImageCollection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageCollection::Active => f.write_str("active"),
+            ImageCollection::Trashed => f.write_str("trashed"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
