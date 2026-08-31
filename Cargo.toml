@@ -50,8 +50,8 @@ tower-http = { version = "0.7", optional = true, features = [
 
 
 [features]
-default = ["server"]
-web = ["dioxus/web"]
+default = []
+web = ["dioxus/web", "dep:chrono"]
 server = [
   "dioxus/server",
   "dep:getrandom",

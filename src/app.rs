@@ -1,6 +1,11 @@
 pub mod auth;
+pub mod components;
 #[cfg(feature = "server")]
 pub mod error;
 pub mod image;
+pub mod layout;
+pub mod pages;
+pub mod routes;
 #[cfg(feature = "server")]
 pub mod server;
+pub mod theme;

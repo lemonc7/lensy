@@ -7,7 +7,7 @@ use super::server_functions::{
     delete_image, list_images, list_trashed_images, restore_image, soft_delete_image,
 };
 #[cfg(feature = "web")]
-use crate::app::auth::hooks::{AuthController, use_auth};
+use crate::app::auth::{AuthController, use_auth};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GalleryLoadState {
@@ -46,14 +46,12 @@ impl ImageGalleryController {
     }
 
     // 清空当前列表，并重新加载第一页
-    pub async fn reload(mut self) -> Result<(), String> {
+    pub async fn reload(self) -> Result<(), String> {
         if self.is_loading() {
             return Ok(());
         }
 
-        self.images.write().clear();
-        self.next_cursor.set(None);
-        self.initialized.set(false);
+        // 请求成功后再替换列表，避免刷新失败时清空用户当前看到的图片。
         self.load_page(None, true).await
     }
 
