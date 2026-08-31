@@ -1,0 +1,22 @@
+[server]
+port = 8080
+public_url = "https://img.example.com"
+tz = "Asia/Shanghai"
+request_timeout = 120
+max_http_concurrent = 32
+# 清理过期会话以及中断的上传/删除任务。
+maintenance_interval = 300
+
+[image]
+max_upload_size = 20971520
+max_pixels = 50000000
+quality = 82.0
+thumbnail_quality = 75.0
+method = 4
+thumbnail_max_edge = 512
+max_concurrent_processing = 1
+
+[auth]
+username = "lensy-admin"
+password = ""
+token = ""

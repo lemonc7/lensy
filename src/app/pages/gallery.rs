@@ -1,5 +1,11 @@
 use dioxus::prelude::*;
 
+#[derive(Clone, PartialEq)]
+struct ToastNotice {
+    id: u64,
+    message: String,
+}
+
 use crate::{
     app::{
         components::{DeleteConfirmation, ImageAction, ImageCard, ImageViewer, UploadDialog},
@@ -29,7 +35,36 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
     // 等待用户确认删除的图片
     let mut confirm_delete = use_signal(|| None::<PublicId>);
     let mut show_upload = use_signal(|| false);
-    let mut notice = use_signal(|| None::<String>);
+    let mut notice = use_signal(|| None::<ToastNotice>);
+    let next_notice_id = use_signal(|| 1_u64);
+
+    // 每条提示独立计时，避免旧提示的计时器关闭后来出现的新提示。
+    use_effect(move || {
+        #[cfg(feature = "web")]
+        {
+            let Some(current) = notice() else {
+                return;
+            };
+
+            spawn(async move {
+                let timer = document::eval(
+                    r#"
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    return true;
+                    "#,
+                );
+                let _ = timer.join::<bool>().await;
+
+                if notice
+                    .read()
+                    .as_ref()
+                    .is_some_and(|latest| latest.id == current.id)
+                {
+                    notice.set(None);
+                }
+            });
+        }
+    });
 
     // 模态窗口打开时禁止背景页面滚动；关闭后恢复。
     use_effect(move || {
@@ -225,54 +260,11 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
             class: "md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6",
 
             for image in images() {
-              {
-                  let is_busy = busy_image.read().as_ref() == Some(&image.public_id);
-                  rsx! {
-                    ImageCard {
-                      key: "{image.public_id}",
-                      image: image.clone(),
-                      collection,
-                      busy: is_busy,
-                      onopen: move |image| selected.set(Some(image)),
-                      onaction: move |(action, public_id): (ImageAction, PublicId)| {
-                          operation_error.set(None);
-
-                          match action {
-                              ImageAction::MoveToTrash => {
-                                  if busy_image.read().is_some() {
-                                      return;
-                                  }
-                                  busy_image.set(Some(public_id.clone()));
-
-                                  spawn(async move {
-                                      if let Err(error) = gallery.move_to_trash(public_id).await {
-                                          operation_error.set(Some(error));
-                                      } else {
-                                          notice.set(Some("已移入回收站".to_owned()));
-                                      }
-                                      busy_image.set(None);
-                                  });
-                              }
-                              ImageAction::Restore => {
-                                  if busy_image.read().is_some() {
-                                      return;
-                                  }
-                                  busy_image.set(Some(public_id.clone()));
-
-                                  spawn(async move {
-                                      if let Err(error) = gallery.restore(public_id).await {
-                                          operation_error.set(Some(error));
-                                      } else {
-                                          notice.set(Some("图片已恢复".to_owned()));
-                                      }
-                                      busy_image.set(None);
-                                  });
-                              }
-                              ImageAction::Delete => confirm_delete.set(Some(public_id)),
-                          }
-                      },
-                    }
-                  }
+              ImageCard {
+                key: "{image.public_id}",
+                image: image.clone(),
+                collection,
+                onopen: move |image| selected.set(Some(image)),
               }
             }
           }
@@ -281,12 +273,16 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
         {pagination}
 
         if let Some(image) = selected() {
+          {
+            let viewer_busy = busy_image.read().as_ref() == Some(&image.public_id);
+            rsx! {
           ImageViewer {
             key: "viewer-{image.public_id}",
             image,
             collection,
             has_previous,
             has_next,
+            busy: viewer_busy,
             onclose: move |_| selected.set(None),
             onprevious: move |_| {
                 if let Some(position) = selected_position
@@ -300,7 +296,48 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
                     selected.set(images.read().get(position + 1).cloned());
                 }
             },
-            onnotice: move |message| notice.set(Some(message)),
+            onaction: move |(action, public_id): (ImageAction, PublicId)| {
+                operation_error.set(None);
+
+                match action {
+                    ImageAction::MoveToTrash => {
+                        if busy_image.read().is_some() {
+                            return;
+                        }
+                        busy_image.set(Some(public_id.clone()));
+
+                        spawn(async move {
+                            if let Err(error) = gallery.move_to_trash(public_id).await {
+                                operation_error.set(Some(error));
+                            } else {
+                                selected.set(None);
+                                show_notice(notice, next_notice_id, "已移入回收站".to_owned());
+                            }
+                            busy_image.set(None);
+                        });
+                    }
+                    ImageAction::Restore => {
+                        if busy_image.read().is_some() {
+                            return;
+                        }
+                        busy_image.set(Some(public_id.clone()));
+
+                        spawn(async move {
+                            if let Err(error) = gallery.restore(public_id).await {
+                                operation_error.set(Some(error));
+                            } else {
+                                selected.set(None);
+                                show_notice(notice, next_notice_id, "图片已恢复".to_owned());
+                            }
+                            busy_image.set(None);
+                        });
+                    }
+                    ImageAction::Delete => confirm_delete.set(Some(public_id)),
+                }
+            },
+            onnotice: move |message| show_notice(notice, next_notice_id, message),
+          }
+            }
           }
         }
 
@@ -321,7 +358,8 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
                       if let Err(error) = gallery.delete_image(public_id).await {
                           operation_error.set(Some(error));
                       } else {
-                          notice.set(Some("图片已永久删除".to_owned()));
+                          selected.set(None);
+                          show_notice(notice, next_notice_id, "图片已永久删除".to_owned());
                       }
                     busy_image.set(None);
                 });
@@ -334,11 +372,11 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
             oncancel: move |_| show_upload.set(false),
             onuploaded: move |uploaded: UploadImage| {
                 show_upload.set(false);
-                notice.set(Some(if uploaded.already_exists {
+                show_notice(notice, next_notice_id, if uploaded.already_exists {
                     "图片已存在，未重复保存".to_owned()
                 } else {
                     "图片上传成功".to_owned()
-                }));
+                });
 
                 spawn(async move {
                     if let Err(error) = gallery.reload().await {
@@ -349,12 +387,12 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
           }
         }
 
-        if let Some(message) = notice() {
+        if let Some(current) = notice() {
           div {
             class: "fixed bottom-5 right-5 z-70 flex max-w-sm items-center gap-4",
             class: "rounded-lg border border-border bg-card px-4 py-3 shadow-xl",
             role: "status",
-            span { class: "text-sm text-card-foreground", "{message}" }
+            span { class: "text-sm text-card-foreground", "{current.message}" }
             button {
               class: "text-xs text-muted-foreground hover:text-foreground",
               onclick: move |_| notice.set(None),
@@ -364,4 +402,14 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
         }
       }
     }
+}
+
+fn show_notice(
+    mut notice: Signal<Option<ToastNotice>>,
+    mut next_notice_id: Signal<u64>,
+    message: String,
+) {
+    let id = next_notice_id();
+    next_notice_id.set(id.wrapping_add(1));
+    notice.set(Some(ToastNotice { id, message }));
 }

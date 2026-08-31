@@ -12,9 +12,7 @@ pub enum ImageAction {
 pub fn ImageCard(
     image: Image,
     collection: ImageCollection,
-    busy: bool,
     onopen: EventHandler<Image>,
-    onaction: EventHandler<(ImageAction, PublicId)>,
 ) -> Element {
     let mut thumbnail_loading = use_signal(|| true);
     let mut thumbnail_failed = use_signal(|| false);
@@ -26,10 +24,6 @@ pub fn ImageCard(
     );
 
     let open_image = image.clone();
-
-    let trash_id = image.public_id.clone();
-    let restore_id = image.public_id.clone();
-    let delete_id = image.public_id.clone();
 
     rsx! {
       article {
@@ -72,70 +66,6 @@ pub fn ImageCard(
             }
           }
 
-          if busy {
-            div {
-              class: "absolute inset-0 flex items-center justify-center",
-              class: "bg-background/70 backdrop-blur-sm",
-
-              div {
-                class: "h-7 w-7 animate-spin rounded-full border-2",
-                class: "border-primary/30 border-t-primary",
-              }
-            }
-          }
-        }
-
-        footer { class: "border-t border-border bg-card p-3",
-
-          div {
-            class: "truncate text-sm font-medium text-card-foreground",
-            title: image.original_name.clone(),
-            "{image.original_name}"
-          }
-
-          div { class: "mt-1 text-xs text-muted-foreground", "{image.width} x {image.height}" }
-
-          div { class: "mt-3 flex gap-2",
-
-            match collection {
-                ImageCollection::Active => {
-                    rsx! {
-                      button {
-                        class: "flex-1 rounded-md bg-destructive/10 px-3 py-2",
-                        class: "text-xs text-destructive transition",
-                        class: "hover:bg-destructive hover:text-destructive-foreground",
-                        class: "disabled:cursor-not-allowed disabled:opacity-50",
-                        disabled: busy,
-                        onclick: move |_| onaction.call((ImageAction::MoveToTrash, trash_id.clone())),
-                        "移入回收站"
-                      }
-                    }
-                }
-                ImageCollection::Trashed => {
-                    rsx! {
-                      button {
-                        class: "flex-1 rounded-md bg-success/10 px-3 py-2",
-                        class: "text-xs text-success transition",
-                        class: "hover:bg-success hover:text-white",
-                        class: "disabled:cursor-not-allowed disabled:opacity-50",
-                        disabled: busy,
-                        onclick: move |_| onaction.call((ImageAction::Restore, restore_id.clone())),
-                        "恢复"
-                      }
-
-                      button {
-                        class: "rounded-md bg-destructive/10 px-3 py-2",
-                        class: "text-xs text-destructive transition",
-                        class: "hover:bg-destructive hover:text-destructive-foreground",
-                        class: "disabled:cursor-not-allowed disabled:opacity-50",
-                        disabled: busy,
-                        onclick: move |_| onaction.call((ImageAction::Delete, delete_id.clone())),
-                        "永久删除"
-                      }
-                    }
-                }
-            }
-          }
         }
       }
     }
@@ -147,9 +77,11 @@ pub fn ImageViewer(
     collection: ImageCollection,
     has_previous: bool,
     has_next: bool,
+    busy: bool,
     onclose: EventHandler<()>,
     onprevious: EventHandler<()>,
     onnext: EventHandler<()>,
+    onaction: EventHandler<(ImageAction, PublicId)>,
     onnotice: EventHandler<String>,
 ) -> Element {
     let mut image_loading = use_signal(|| true);
@@ -161,6 +93,10 @@ pub fn ImageViewer(
         ImageFileKind::Original,
         image.public_id
     );
+    let public_url = format!("/i/{}", image.public_id);
+    let trash_id = image.public_id.clone();
+    let restore_id = image.public_id.clone();
+    let delete_id = image.public_id.clone();
 
     rsx! {
       div {
@@ -243,6 +179,17 @@ pub fn ImageViewer(
                 "原图加载失败，请关闭后重试"
               }
             }
+
+            if busy {
+              div {
+                class: "absolute inset-0 flex items-center justify-center",
+                class: "bg-background/70 backdrop-blur-sm",
+                div {
+                  class: "h-8 w-8 animate-spin rounded-full border-2",
+                  class: "border-primary/30 border-t-primary",
+                }
+              }
+            }
           }
 
           footer {
@@ -266,48 +213,82 @@ pub fn ImageViewer(
               }
             }
 
-            div { class: "relative shrink-0",
-              button {
-                class: "rounded-md bg-secondary px-3 py-2 text-xs",
-                class: "text-secondary-foreground hover:bg-accent",
-                onclick: move |_| show_copy_menu.toggle(),
-                "复制外链"
-              }
+            div { class: "flex shrink-0 items-center gap-2",
+              match collection {
+                  ImageCollection::Active => rsx! {
+                    button {
+                      class: "rounded-md bg-destructive/10 px-3 py-2 text-xs",
+                      class: "text-destructive transition hover:bg-destructive hover:text-destructive-foreground",
+                      class: "disabled:cursor-not-allowed disabled:opacity-50",
+                      disabled: busy,
+                      onclick: move |_| onaction.call((ImageAction::MoveToTrash, trash_id.clone())),
+                      "移入回收站"
+                    }
 
-              if show_copy_menu() {
-                div {
-                  class: "absolute bottom-full right-0 mb-2 w-36 overflow-hidden",
-                  class: "rounded-md border border-border bg-card p-1 shadow-xl",
-                  for (label, format) in [
-                      ("原图 URL", "url"),
-                      ("Markdown", "markdown"),
-                      ("HTML", "html"),
-                  ] {
-                    {
-                        let copy_url = original_url.clone();
-                        let copy_name = image.original_name.clone();
-                        rsx! {
-                          button {
-                            class: "block w-full rounded px-3 py-2 text-left text-xs",
-                            class: "hover:bg-accent hover:text-accent-foreground",
-                            onclick: move |_| {
-                                let relative_url = copy_url.clone();
-                                let original_name = copy_name.clone();
-                                spawn(async move {
-                                    let message = match copy_image_link(relative_url, format, original_name).await {
-                                        Ok(()) => format!("已复制{label}"),
-                                        Err(error) => format!("复制失败: {error}"),
-                                    };
-                                    onnotice.call(message);
-                                    show_copy_menu.set(false);
-                                });
-                            },
-                            "{label}"
+                    div { class: "relative",
+                      button {
+                        class: "rounded-md bg-secondary px-3 py-2 text-xs",
+                        class: "text-secondary-foreground hover:bg-accent",
+                        disabled: busy,
+                        onclick: move |_| show_copy_menu.toggle(),
+                        "复制外链"
+                      }
+
+                      if show_copy_menu() {
+                        div {
+                          class: "absolute bottom-full right-0 mb-2 w-36 overflow-hidden",
+                          class: "rounded-md border border-border bg-card p-1 shadow-xl",
+                          for (label, format) in [
+                              ("原图 URL", "url"),
+                              ("Markdown", "markdown"),
+                              ("HTML", "html"),
+                          ] {
+                            {
+                                let copy_url = public_url.clone();
+                                let copy_name = image.original_name.clone();
+                                rsx! {
+                                  button {
+                                    class: "block w-full rounded px-3 py-2 text-left text-xs",
+                                    class: "hover:bg-accent hover:text-accent-foreground",
+                                    onclick: move |_| {
+                                        let relative_url = copy_url.clone();
+                                        let original_name = copy_name.clone();
+                                        spawn(async move {
+                                            let message = match copy_image_link(relative_url, format, original_name).await {
+                                                Ok(()) => format!("已复制{label}"),
+                                                Err(error) => format!("复制失败: {error}"),
+                                            };
+                                            onnotice.call(message);
+                                            show_copy_menu.set(false);
+                                        });
+                                    },
+                                    "{label}"
+                                  }
+                                }
+                            }
                           }
                         }
+                      }
                     }
-                  }
-                }
+                  },
+                  ImageCollection::Trashed => rsx! {
+                    button {
+                      class: "rounded-md bg-success/10 px-3 py-2 text-xs text-success",
+                      class: "transition hover:bg-success hover:text-white",
+                      class: "disabled:cursor-not-allowed disabled:opacity-50",
+                      disabled: busy,
+                      onclick: move |_| onaction.call((ImageAction::Restore, restore_id.clone())),
+                      "恢复"
+                    }
+                    button {
+                      class: "rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive",
+                      class: "transition hover:bg-destructive hover:text-destructive-foreground",
+                      class: "disabled:cursor-not-allowed disabled:opacity-50",
+                      disabled: busy,
+                      onclick: move |_| onaction.call((ImageAction::Delete, delete_id.clone())),
+                      "永久删除"
+                    }
+                  },
               }
             }
           }

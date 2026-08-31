@@ -14,6 +14,7 @@ pub fn UploadDialog(oncancel: EventHandler<()>, onuploaded: EventHandler<UploadI
     let mut uploading = use_signal(|| false);
     #[allow(unused_mut)]
     let mut error = use_signal(|| None::<String>);
+    let mut selected_file = use_signal(|| None::<(String, u64)>);
 
     rsx! {
       div {
@@ -42,7 +43,9 @@ pub fn UploadDialog(oncancel: EventHandler<()>, onuploaded: EventHandler<UploadI
           onclick: move |event| event.stop_propagation(),
           onsubmit: move |event| {
               event.prevent_default();
-              if !uploading() {
+              if selected_file.read().is_none() {
+                  error.set(Some("请先选择要上传的图片".to_owned()));
+              } else if !uploading() {
                   #[cfg(feature = "web")]
                   {
                       uploading.set(true);
@@ -78,9 +81,26 @@ pub fn UploadDialog(oncancel: EventHandler<()>, onuploaded: EventHandler<UploadI
               accept: "image/jpeg,image/png,image/webp",
               required: true,
               disabled: uploading(),
+              onchange: move |event| {
+                  let file = event.files().into_iter().next();
+                  selected_file.set(file.map(|file| (file.name(), file.size())));
+                  error.set(None);
+              },
             }
-            span { class: "text-sm font-medium", "选择图片" }
-            span { class: "mt-1 text-xs text-muted-foreground", "点击此处浏览文件" }
+            if let Some((name, size)) = selected_file() {
+              span { class: "text-xs text-muted-foreground", "已选择" }
+              span {
+                class: "mt-1 max-w-full truncate text-sm font-medium",
+                title: name.clone(),
+                "{name}"
+              }
+              span { class: "mt-1 text-xs text-muted-foreground",
+                "{format_file_size(size)} · 点击重新选择"
+              }
+            } else {
+              span { class: "text-sm font-medium", "选择图片" }
+              span { class: "mt-1 text-xs text-muted-foreground", "点击此处浏览文件" }
+            }
           }
 
           if let Some(message) = error() {
@@ -105,11 +125,21 @@ pub fn UploadDialog(oncancel: EventHandler<()>, onuploaded: EventHandler<UploadI
               class: "rounded-md bg-primary px-4 py-2 text-sm font-medium",
               class: "text-primary-foreground hover:bg-primary/90",
               class: "disabled:cursor-not-allowed disabled:opacity-50",
-              disabled: uploading(),
+              disabled: uploading() || selected_file.read().is_none(),
               if uploading() { "上传中..." } else { "上传" }
             }
           }
         }
       }
+    }
+}
+
+fn format_file_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }

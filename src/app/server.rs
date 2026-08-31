@@ -1,6 +1,5 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use chrono_tz::Tz;
 use dioxus::{
     CapturedError,
     fullstack::{
@@ -36,7 +35,7 @@ use crate::{
     app::{auth::middleware::require_authentication, image::api},
     backend::{
         auth::AuthService,
-        config::{ServerConfig, load_config},
+        config::{Config, ServerConfig},
         db::{Repository, connect},
         image::processor::ImageProcessor,
         service::Service,
@@ -50,20 +49,15 @@ pub struct AppState {
     pub auth: Arc<AuthService>,
 }
 
-pub async fn run() -> dioxus::Result<()> {
-    let config = load_config("./config/config.toml").map_err(CapturedError::msg)?;
-
+pub async fn run(config: Config, timezone: chrono_tz::Tz) -> dioxus::Result<()> {
     // 上传上限必须在这里就取出来：config.image 与 config.auth 稍后会被移走，之后就读不到了。
-    // axum 的 Multipart 默认只接受 2MB，不放开的话 image.max_upload_size 配多大都不会生效，
-    // 请求会在提取阶段被拒掉，根本走不到 ImageProcessor 的校验。留 1MiB 余量给 multipart 开销。
+    // Body Limit 必须覆盖图片本身；再留 1MiB 给网页端 Server Function 的 multipart 开销。
     let max_upload_bytes = config.image.max_upload_size.saturating_add(1024 * 1024);
 
     let pool = connect("sqlite://data/lensy.db").await?;
     let repository = Repository::new(pool.clone());
     let processor = ImageProcessor::new(config.image);
     let storage = Storage::new("data")?;
-    let timezone = config.server.tz.parse::<Tz>().map_err(CapturedError::msg)?;
-
     let service = Arc::new(Service::new(repository, processor, storage, timezone));
     let auth = Arc::new(
         AuthService::new(config.auth, &config.server.public_url).map_err(CapturedError::msg)?,
