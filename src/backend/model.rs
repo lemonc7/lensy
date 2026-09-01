@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use crate::contracts::{Image, PUBLIC_ID_LENGTH, PublicId};
+use crate::contracts::{PUBLIC_ID_LENGTH, PublicId};
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 // 248是不超过256最大62的倍数
@@ -40,21 +40,6 @@ pub struct StoredImage {
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted_at: Option<i64>,
-}
-
-impl From<StoredImage> for Image {
-    fn from(value: StoredImage) -> Self {
-        Self {
-            public_id: value.public_id,
-            original_name: value.original_name,
-            stored_size: value.stored_size,
-            width: value.width,
-            height: value.height,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            deleted_at: value.deleted_at,
-        }
-    }
 }
 
 pub struct NewImage<'a> {

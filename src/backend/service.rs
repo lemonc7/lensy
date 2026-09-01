@@ -52,7 +52,7 @@ impl Service {
             .find_active_image_by_public_id(public_id)
             .await?
             .ok_or(ServiceError::ImageNotFound)
-            .map(Into::into)
+            .map(|image| self.to_image(image))
     }
 
     pub async fn get_trashed_image(&self, public_id: &PublicId) -> Result<Image, ServiceError> {
@@ -60,7 +60,7 @@ impl Service {
             .find_trashed_image_by_public_id(public_id)
             .await?
             .ok_or(ServiceError::ImageNotFound)
-            .map(Into::into)
+            .map(|image| self.to_image(image))
     }
 
     pub async fn list_images(
@@ -91,9 +91,11 @@ impl Service {
         };
 
         Ok(ImagePage {
-            images: images.into_iter().map(Into::into).collect(),
+            images: images
+                .into_iter()
+                .map(|image| self.to_image(image))
+                .collect(),
             next_cursor,
-            timezone: self.timezone.name().to_owned(),
         })
     }
 
@@ -129,9 +131,11 @@ impl Service {
         };
 
         Ok(ImagePage {
-            images: images.into_iter().map(Into::into).collect(),
+            images: images
+                .into_iter()
+                .map(|image| self.to_image(image))
+                .collect(),
             next_cursor,
-            timezone: self.timezone.name().to_owned(),
         })
     }
 
@@ -184,7 +188,7 @@ impl Service {
             .await?
         {
             return Ok(UploadImage {
-                image: existing.into(),
+                image: self.to_image(existing),
                 already_exists: true,
             });
         }
@@ -244,7 +248,7 @@ impl Service {
             .await
         {
             Ok(Some(image)) => Ok(UploadImage {
-                image: image.into(),
+                image: self.to_image(image),
                 already_exists: false,
             }),
             Ok(None) => {
@@ -261,7 +265,7 @@ impl Service {
                     .ok_or(ServiceError::MissingConflictingImage)?;
 
                 Ok(UploadImage {
-                    image: existing.into(),
+                    image: self.to_image(existing),
                     already_exists: true,
                 })
             }
@@ -531,6 +535,31 @@ impl Service {
         }
     }
 
+    fn to_image(&self, image: StoredImage) -> Image {
+        Image {
+            public_id: image.public_id,
+            original_name: image.original_name,
+            stored_size: image.stored_size,
+            width: image.width,
+            height: image.height,
+            created_at: self.format_timestamp(image.created_at),
+            updated_at: self.format_timestamp(image.updated_at),
+            deleted_at: image
+                .deleted_at
+                .map(|timestamp| self.format_timestamp(timestamp)),
+        }
+    }
+
+    fn format_timestamp(&self, timestamp: i64) -> String {
+        chrono::DateTime::from_timestamp(timestamp, 0)
+            .map(|time| {
+                time.with_timezone(&self.timezone)
+                    .format("%Y-%m-%d %H:%M %:z")
+                    .to_string()
+            })
+            .unwrap_or_else(|| "未知时间".to_owned())
+    }
+
     async fn open_stored_image(
         &self,
         image: StoredImage,
@@ -607,6 +636,7 @@ mod tests {
         assert!(!first.already_exists);
         assert_eq!(first.image.original_name, "example.png");
         assert_eq!((first.image.width, first.image.height), (4, 2));
+        assert!(first.image.created_at.ends_with("+08:00"));
 
         let mut opened = service
             .open_image(&first.image.public_id, ImageFileKind::Original)

@@ -61,9 +61,9 @@ pub struct Image {
     pub stored_size: i64,
     pub width: i64,
     pub height: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub deleted_at: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,8 +85,6 @@ pub struct ImageCursor {
 pub struct ImagePage {
     pub images: Vec<Image>,
     pub next_cursor: Option<ImageCursor>,
-    /// 服务端配置的 IANA 时区名称，例如 `Asia/Shanghai`。
-    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

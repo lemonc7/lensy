@@ -75,7 +75,6 @@ pub fn ImageCard(
 pub fn ImageViewer(
     image: Image,
     collection: ImageCollection,
-    timezone: String,
     has_previous: bool,
     has_next: bool,
     busy: bool,
@@ -202,11 +201,11 @@ pub fn ImageViewer(
                 "{image.original_name}"
               }
               p { class: "mt-1 text-xs text-muted-foreground",
-                "{image.width} × {image.height} · {format_file_size(image.stored_size)} · {format_timestamp(image.created_at, &timezone)}"
+                "{image.width} × {image.height} · {format_file_size(image.stored_size)} · {image.created_at}"
               }
               if let Some(deleted_at) = image.deleted_at {
                 p { class: "mt-1 text-xs text-muted-foreground",
-                  "删除于 {format_timestamp(deleted_at, &timezone)}"
+                  "删除于 {deleted_at}"
                 }
               }
               code { class: "mt-1 block text-xs text-muted-foreground",
@@ -311,27 +310,6 @@ fn format_file_size(bytes: i64) -> String {
     }
 }
 
-fn format_timestamp(timestamp: i64, timezone: &str) -> String {
-    #[cfg(any(feature = "web", feature = "server"))]
-    {
-        let timezone = timezone.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC);
-
-        chrono::DateTime::from_timestamp(timestamp, 0)
-            .map(|time| {
-                time.with_timezone(&timezone)
-                    .format("%Y-%m-%d %H:%M %:z")
-                    .to_string()
-            })
-            .unwrap_or_else(|| "未知时间".to_owned())
-    }
-
-    #[cfg(not(any(feature = "web", feature = "server")))]
-    {
-        let _ = timezone;
-        timestamp.to_string()
-    }
-}
-
 #[cfg(feature = "web")]
 async fn copy_image_link(
     relative_url: String,
@@ -377,17 +355,4 @@ async fn copy_image_link(
     _original_name: String,
 ) -> Result<(), String> {
     Err("复制功能只能在 Web 客户端使用".to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::format_timestamp;
-
-    #[test]
-    fn formats_timestamp_in_configured_timezone() {
-        assert_eq!(
-            format_timestamp(0, "Asia/Shanghai"),
-            "1970-01-01 08:00 +08:00",
-        );
-    }
 }
