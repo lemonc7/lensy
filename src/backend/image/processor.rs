@@ -1,6 +1,6 @@
-use std::io::Cursor;
+use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 
-use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage, imageops::FilterType};
+use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage, RgbaImage, imageops::FilterType};
 use webp::{BitstreamFeatures, Encoder, WebPConfig};
 
 use crate::backend::{
@@ -8,7 +8,7 @@ use crate::backend::{
     error::ImageProcessorError,
     image::{
         format::SupportedFormat,
-        hash::{content_hash, pixel_hash},
+        hash::{content_hash, pixel_hash, pixel_hash_rgb},
         resize::fit_dimensions,
     },
 };
@@ -31,6 +31,53 @@ pub struct ImageProcessor {
     config: ImageConfig,
 }
 
+enum DecodedPixels {
+    Rgb(RgbImage),
+    Rgba(RgbaImage),
+}
+
+impl DecodedPixels {
+    fn from_dynamic(image: DynamicImage) -> Self {
+        if image.has_alpha() {
+            Self::Rgba(image.into_rgba8())
+        } else {
+            Self::Rgb(image.into_rgb8())
+        }
+    }
+
+    fn dimensions(&self) -> (u32, u32) {
+        match self {
+            Self::Rgb(image) => image.dimensions(),
+            Self::Rgba(image) => image.dimensions(),
+        }
+    }
+
+    fn pixel_hash(&self) -> String {
+        let (width, height) = self.dimensions();
+        match self {
+            Self::Rgb(image) => pixel_hash_rgb(width, height, image.as_raw()),
+            Self::Rgba(image) => pixel_hash(width, height, image.as_raw()),
+        }
+    }
+
+    fn resize(&self, width: u32, height: u32) -> Self {
+        match self {
+            Self::Rgb(image) => Self::Rgb(image::imageops::resize(
+                image,
+                width,
+                height,
+                FilterType::Lanczos3,
+            )),
+            Self::Rgba(image) => Self::Rgba(image::imageops::resize(
+                image,
+                width,
+                height,
+                FilterType::Lanczos3,
+            )),
+        }
+    }
+}
+
 impl ImageProcessor {
     pub fn new(config: ImageConfig) -> Self {
         Self { config }
@@ -40,23 +87,48 @@ impl ImageProcessor {
         self.config.max_concurrent_processing
     }
 
+    pub fn max_upload_size(&self) -> usize {
+        self.config.max_upload_size
+    }
+
     pub fn process(&self, source: &[u8]) -> Result<ProcessedImage, ImageProcessorError> {
+        self.process_reader(Cursor::new(source), source.len())
+    }
+
+    pub fn process_reader<R: Read + Seek>(
+        &self,
+        mut source: R,
+        source_len: usize,
+    ) -> Result<ProcessedImage, ImageProcessorError> {
         // 校验上传字节数
-        if source.is_empty() {
+        if source_len == 0 {
             return Err(ImageProcessorError::EmptyInput);
         }
 
-        if source.len() > self.config.max_upload_size {
+        if source_len > self.config.max_upload_size {
             return Err(ImageProcessorError::TooLarge);
         }
 
+        // 格式识别和 WebP 特性检查只需要文件头；避免重新读取整个上传文件。
+        source
+            .seek(SeekFrom::Start(0))
+            .map_err(ImageProcessorError::InputIo)?;
+        let mut header = [0_u8; 64];
+        let header_len = source
+            .read(&mut header)
+            .map_err(ImageProcessorError::InputIo)?;
+        source
+            .seek(SeekFrom::Start(0))
+            .map_err(ImageProcessorError::InputIo)?;
+        let header = &header[..header_len];
+
         // 通过魔数确定允许的图片格式
-        let format = SupportedFormat::detect(source)?;
+        let format = SupportedFormat::detect(header)?;
 
         // 当前业务不接受动态webp
         if matches!(format, SupportedFormat::Webp) {
             let features =
-                BitstreamFeatures::new(source).ok_or(ImageProcessorError::InvalidWebpBitstream)?;
+                BitstreamFeatures::new(header).ok_or(ImageProcessorError::InvalidWebpBitstream)?;
 
             if features.has_animation() {
                 return Err(ImageProcessorError::AnimatedWebp);
@@ -64,7 +136,7 @@ impl ImageProcessor {
         }
 
         // 创建对应格式的编码器，不适用扩展名或自动猜测结果，确保解码格式和魔数一致
-        let mut reader = ImageReader::with_format(Cursor::new(source), format.image_format());
+        let mut reader = ImageReader::with_format(BufReader::new(source), format.image_format());
 
         // 限制解码器内存，像素数检查仍然是主要限制
         let mut limits = image::Limits::default();
@@ -89,15 +161,16 @@ impl ImageProcessor {
         // 应用手机照片的EXIF方向
         decoded.apply_orientation(orientation);
 
-        // 统一转换为连续的，非预乘Alpha的RGBA8
-        let rgba = decoded.into_rgba8();
-        let (width, height) = rgba.dimensions();
+        // 无透明通道的图片保持 RGB8，避免强制扩展成每像素 4 字节。
+        // 只有真正带 Alpha 通道的图片才使用 RGBA8。
+        let pixels = DecodedPixels::from_dynamic(decoded);
+        let (width, height) = pixels.dimensions();
 
-        // 对方向归一化后的像素计算哈希
-        let pixel_hash = pixel_hash(width, height, rgba.as_raw());
+        // RGB 分块补入不透明 Alpha 后参与哈希，保持与旧版 RGBA 哈希兼容。
+        let pixel_hash = pixels.pixel_hash();
 
         // 编码正式webp
-        let encoded = self.encode_webp(&rgba, self.config.quality)?;
+        let encoded = self.encode_webp(&pixels, self.config.quality)?;
 
         // 计算缩略图尺寸
         let (thumbnail_width, thumbnail_height) =
@@ -105,14 +178,9 @@ impl ImageProcessor {
 
         // 小图不缩放，但仍按缩略图质量单独编码
         let encoded_thumbnail = if (thumbnail_width, thumbnail_height) == (width, height) {
-            self.encode_webp(&rgba, self.config.thumbnail_quality)?
+            self.encode_webp(&pixels, self.config.thumbnail_quality)?
         } else {
-            let thumbnail = image::imageops::resize(
-                &rgba,
-                thumbnail_width,
-                thumbnail_height,
-                FilterType::Lanczos3,
-            );
+            let thumbnail = pixels.resize(thumbnail_width, thumbnail_height);
             self.encode_webp(&thumbnail, self.config.thumbnail_quality)?
         };
 
@@ -144,7 +212,11 @@ impl ImageProcessor {
         Ok(())
     }
 
-    fn encode_webp(&self, image: &RgbaImage, quality: f32) -> Result<Vec<u8>, ImageProcessorError> {
+    fn encode_webp(
+        &self,
+        image: &DecodedPixels,
+        quality: f32,
+    ) -> Result<Vec<u8>, ImageProcessorError> {
         let mut config =
             WebPConfig::new().map_err(|_| ImageProcessorError::WebpConfigInitialization)?;
 
@@ -162,7 +234,14 @@ impl ImageProcessor {
         // 改善RGB->YUV过程中颜色边缘的质量
         config.use_sharp_yuv = 1;
 
-        let encoder = Encoder::from_rgba(image.as_raw(), image.width(), image.height());
+        let encoder = match image {
+            DecodedPixels::Rgb(image) => {
+                Encoder::from_rgb(image.as_raw(), image.width(), image.height())
+            }
+            DecodedPixels::Rgba(image) => {
+                Encoder::from_rgba(image.as_raw(), image.width(), image.height())
+            }
+        };
 
         encoder
             .encode_advanced(&config)
@@ -173,11 +252,13 @@ impl ImageProcessor {
 
 #[cfg(test)]
 mod tests {
-    use image::{ColorType, ImageEncoder, ImageFormat, codecs::png::PngEncoder};
+    use image::{
+        ColorType, DynamicImage, ImageEncoder, ImageFormat, Rgb, RgbImage, codecs::png::PngEncoder,
+    };
 
     use crate::backend::{config::ImageConfig, error::ImageProcessorError};
 
-    use super::{ImageProcessor, MAX_WEBP_DIMENSION};
+    use super::{DecodedPixels, ImageProcessor, MAX_WEBP_DIMENSION};
 
     fn test_config() -> ImageConfig {
         ImageConfig {
@@ -242,6 +323,19 @@ mod tests {
             features.format(),
             Some(webp::BitstreamFormat::Lossy),
         ));
+    }
+
+    #[test]
+    fn keeps_opaque_pixels_in_rgb_layout() {
+        let source = DynamicImage::ImageRgb8(RgbImage::from_pixel(4, 2, Rgb([10, 20, 30])));
+        let pixels = DecodedPixels::from_dynamic(source);
+
+        assert!(matches!(&pixels, DecodedPixels::Rgb(_)));
+
+        let encoded = ImageProcessor::new(test_config())
+            .encode_webp(&pixels, 82.0)
+            .expect("RGB 图片应成功编码为 WebP");
+        assert!(!encoded.is_empty());
     }
 
     #[test]

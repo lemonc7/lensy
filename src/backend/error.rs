@@ -4,6 +4,8 @@ use crate::contracts::PublicId;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImageProcessorError {
+    #[error("读取上传临时文件失败: {0}")]
+    InputIo(#[source] io::Error),
     #[error("图片内容不能为空")]
     EmptyInput,
     #[error("上传图片超过大小限制")]

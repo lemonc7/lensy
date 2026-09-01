@@ -106,18 +106,24 @@ pub async fn get_image(
 
 #[server(state: Extension<AppState>)]
 pub async fn upload_image(mut data: MultipartFormData) -> ServerFnResult<UploadImage> {
-    let field = data
+    let mut field = data
         .next_field()
         .await
         .or_bad_request("上传内容无法解析")?
         .or_bad_request("上传内容为空")?;
 
     let file_name = field.file_name().unwrap_or("upload").to_owned();
-    let bytes = field.bytes().await.or_bad_request("上传内容读取失败")?;
+    let mut upload = super::upload::StreamingUpload::new(&state.service)?;
+
+    while let Some(chunk) = field.chunk().await.or_bad_request("上传内容读取失败")? {
+        upload.write(&chunk).await?;
+    }
+
+    let (temp_file, source_len) = upload.finish().await?;
 
     state
         .service
-        .upload_image(&file_name, bytes.to_vec())
+        .upload_image(&file_name, temp_file, source_len)
         .await
         .map_err(Into::into)
 }
