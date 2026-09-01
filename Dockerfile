@@ -22,8 +22,9 @@ RUN curl -L --proto '=https' --tlsv1.2 -sSf \
 ENV SQLX_OFFLINE=true
 
 COPY . .
-RUN dx bundle --package lensy --web --release \
-    @server --target x86_64-unknown-linux-musl
+RUN dx bundle --package lensy --release \
+    @client --platform web \
+    @server --platform server --target x86_64-unknown-linux-musl
 
 
 FROM alpine:3.23 AS runtime
