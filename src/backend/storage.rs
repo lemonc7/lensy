@@ -83,6 +83,14 @@ impl Storage {
         Ok(File::open(path)?)
     }
 
+    /// 为上传请求创建一个自动清理的临时文件。
+    pub fn create_upload_file(&self) -> Result<NamedTempFile, StorageError> {
+        Ok(Builder::new()
+            .prefix("upload-")
+            .suffix(".tmp")
+            .tempfile_in(self.temp_dir.path())?)
+    }
+
     pub fn remove_image(&self, image_key: &str, thumbnail_key: &str) -> Result<(), StorageError> {
         let image_path = self.resolve(image_key)?;
         let thumbnail_path = self.resolve(thumbnail_key)?;

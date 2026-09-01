@@ -24,6 +24,7 @@ pub struct ImageGalleryController {
     next_cursor: Signal<Option<ImageCursor>>,
     initialized: Signal<bool>,
     load_state: Signal<GalleryLoadState>,
+    timezone: Signal<String>,
     #[cfg(feature = "web")]
     auth: AuthController,
 }
@@ -37,6 +38,9 @@ impl ImageGalleryController {
     }
     pub fn load_state(self) -> ReadSignal<GalleryLoadState> {
         self.load_state.into()
+    }
+    pub fn timezone(self) -> ReadSignal<String> {
+        self.timezone.into()
     }
     pub fn is_loading(self) -> bool {
         matches!(&*self.load_state.read(), GalleryLoadState::Loading)
@@ -178,6 +182,7 @@ impl ImageGalleryController {
         let ImagePage {
             images: new_images,
             next_cursor,
+            timezone,
         } = page;
 
         if replace {
@@ -187,6 +192,7 @@ impl ImageGalleryController {
         }
 
         self.next_cursor.set(next_cursor);
+        self.timezone.set(timezone);
         self.initialized.set(true);
         self.load_state.set(GalleryLoadState::Ready);
         Ok(())
@@ -223,6 +229,7 @@ pub fn use_image_gallery(collection: ImageCollection) -> ImageGalleryController 
         next_cursor: use_signal(|| None),
         initialized: use_signal(|| false),
         load_state: use_signal(|| GalleryLoadState::Idle),
+        timezone: use_signal(|| "UTC".to_owned()),
         #[cfg(feature = "web")]
         auth: use_auth(),
     };

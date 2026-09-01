@@ -11,6 +11,7 @@ use crate::{
 use chrono::{Datelike, Utc};
 use chrono_tz::Tz;
 use std::sync::Arc;
+use tempfile::NamedTempFile;
 use tokio::sync::{RwLock, Semaphore};
 
 pub struct Service {
@@ -92,6 +93,7 @@ impl Service {
         Ok(ImagePage {
             images: images.into_iter().map(Into::into).collect(),
             next_cursor,
+            timezone: self.timezone.name().to_owned(),
         })
     }
 
@@ -129,6 +131,7 @@ impl Service {
         Ok(ImagePage {
             images: images.into_iter().map(Into::into).collect(),
             next_cursor,
+            timezone: self.timezone.name().to_owned(),
         })
     }
 
@@ -164,14 +167,15 @@ impl Service {
     pub async fn upload_image(
         &self,
         original_name: &str,
-        source: Vec<u8>,
+        source: NamedTempFile,
+        source_len: usize,
     ) -> Result<UploadImage, ServiceError> {
         if original_name.trim().is_empty() || original_name.chars().count() > 255 {
             return Err(ServiceError::InvalidOriginalName);
         }
 
         // 先处理图片
-        let processed = self.process_image(source).await?;
+        let processed = self.process_image(source, source_len).await?;
 
         // 第一轮查重，避免正常情况下创建文件
         if let Some(existing) = self
@@ -267,6 +271,14 @@ impl Service {
                 Err(self.cleanup_failed_upload(&uploading, original).await)
             }
         }
+    }
+
+    pub fn create_upload_file(&self) -> Result<NamedTempFile, ServiceError> {
+        self.storage.create_upload_file().map_err(Into::into)
+    }
+
+    pub fn max_upload_size(&self) -> usize {
+        self.processor.max_upload_size()
     }
 
     // 清理残留文件
@@ -463,7 +475,11 @@ impl Service {
         Ok(())
     }
 
-    async fn process_image(&self, source: Vec<u8>) -> Result<ProcessedImage, ServiceError> {
+    async fn process_image(
+        &self,
+        mut source: NamedTempFile,
+        source_len: usize,
+    ) -> Result<ProcessedImage, ServiceError> {
         // 等待许可证时，只挂起当前异步任务，不会阻塞线程
         let permit = self
             .processing_limit
@@ -477,7 +493,7 @@ impl Service {
         let processed = tokio::task::spawn_blocking(move || {
             // permit在图片处理结束或发生panic后自动释放
             let _permit = permit;
-            processor.process(&source)
+            processor.process_reader(source.as_file_mut(), source_len)
         })
         .await??;
 
@@ -556,7 +572,11 @@ fn build_storage_keys(public_id: &PublicId, upload_time: UploadTime) -> (String,
 
 #[cfg(test)]
 mod tests {
-    use std::{error::Error, io::Read, path::Path};
+    use std::{
+        error::Error,
+        io::{Read, Write},
+        path::Path,
+    };
 
     use chrono_tz::Asia::Shanghai;
     use image::{ColorType, ImageEncoder, codecs::png::PngEncoder};
@@ -582,7 +602,7 @@ mod tests {
         let service = test_service(pool.clone(), data_dir.path())?;
         let source = create_png(4, 2);
 
-        let first = service.upload_image("example.png", source.clone()).await?;
+        let first = upload_test_image(&service, "example.png", source.clone()).await?;
 
         assert!(!first.already_exists);
         assert_eq!(first.image.original_name, "example.png");
@@ -599,7 +619,7 @@ mod tests {
         assert_eq!(opened.original_name, "example.png");
         assert!(!stored_bytes.is_empty());
 
-        let second = service.upload_image("duplicate.png", source).await?;
+        let second = upload_test_image(&service, "duplicate.png", source).await?;
 
         assert!(second.already_exists);
         assert_eq!(second.image.public_id, first.image.public_id);
@@ -636,7 +656,7 @@ mod tests {
             b"unfinished thumbnail",
         )?;
 
-        let pending_deletion = service.upload_image("delete.png", create_png(5, 2)).await?;
+        let pending_deletion = upload_test_image(&service, "delete.png", create_png(5, 2)).await?;
         service
             .soft_delete_image(&pending_deletion.image.public_id)
             .await?;
@@ -714,7 +734,7 @@ mod tests {
         let service = test_service(pool, data_dir.path())?;
 
         assert!(matches!(
-            service.upload_image("  ", create_png(4, 2)).await,
+            upload_test_image(&service, "  ", create_png(4, 2)).await,
             Err(ServiceError::InvalidOriginalName),
         ));
 
@@ -753,6 +773,22 @@ mod tests {
             .create_uploading_image(image)
             .await?
             .ok_or_else(|| "测试 public_id 不应发生冲突".into())
+    }
+
+    async fn upload_test_image(
+        service: &Service,
+        original_name: &str,
+        source: Vec<u8>,
+    ) -> Result<crate::contracts::UploadImage, ServiceError> {
+        let source_len = source.len();
+        let mut temp_file = service.create_upload_file()?;
+        temp_file
+            .as_file_mut()
+            .write_all(&source)
+            .map_err(crate::backend::error::StorageError::from)?;
+        service
+            .upload_image(original_name, temp_file, source_len)
+            .await
     }
 
     fn test_service(pool: SqlitePool, data_path: &Path) -> Result<Service, Box<dyn Error>> {

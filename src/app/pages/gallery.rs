@@ -26,6 +26,7 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
     let gallery = use_image_gallery(collection);
     let images = gallery.images();
     let load_state = gallery.load_state();
+    let timezone = gallery.timezone();
 
     // 正在查看的原图
     let mut selected = use_signal(|| None::<Image>);
@@ -280,6 +281,7 @@ pub(super) fn ImageCollectionPage(collection: ImageCollection) -> Element {
             key: "viewer-{image.public_id}",
             image,
             collection,
+            timezone: timezone(),
             has_previous,
             has_next,
             busy: viewer_busy,

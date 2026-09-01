@@ -85,6 +85,8 @@ pub struct ImageCursor {
 pub struct ImagePage {
     pub images: Vec<Image>,
     pub next_cursor: Option<ImageCursor>,
+    /// 服务端配置的 IANA 时区名称，例如 `Asia/Shanghai`。
+    pub timezone: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

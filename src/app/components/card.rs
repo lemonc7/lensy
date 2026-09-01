@@ -75,6 +75,7 @@ pub fn ImageCard(
 pub fn ImageViewer(
     image: Image,
     collection: ImageCollection,
+    timezone: String,
     has_previous: bool,
     has_next: bool,
     busy: bool,
@@ -201,11 +202,11 @@ pub fn ImageViewer(
                 "{image.original_name}"
               }
               p { class: "mt-1 text-xs text-muted-foreground",
-                "{image.width} × {image.height} · {format_file_size(image.stored_size)} · {format_timestamp(image.created_at)}"
+                "{image.width} × {image.height} · {format_file_size(image.stored_size)} · {format_timestamp(image.created_at, &timezone)}"
               }
               if let Some(deleted_at) = image.deleted_at {
                 p { class: "mt-1 text-xs text-muted-foreground",
-                  "删除于 {format_timestamp(deleted_at)}"
+                  "删除于 {format_timestamp(deleted_at, &timezone)}"
                 }
               }
               code { class: "mt-1 block text-xs text-muted-foreground",
@@ -254,7 +255,9 @@ pub fn ImageViewer(
                                         let relative_url = copy_url.clone();
                                         let original_name = copy_name.clone();
                                         spawn(async move {
-                                            let message = match copy_image_link(relative_url, format, original_name).await {
+                                            let message = match copy_image_link(relative_url, format, original_name)
+                                                .await
+                                            {
                                                 Ok(()) => format!("已复制{label}"),
                                                 Err(error) => format!("复制失败: {error}"),
                                             };
@@ -308,16 +311,23 @@ fn format_file_size(bytes: i64) -> String {
     }
 }
 
-fn format_timestamp(timestamp: i64) -> String {
+fn format_timestamp(timestamp: i64, timezone: &str) -> String {
     #[cfg(any(feature = "web", feature = "server"))]
     {
+        let timezone = timezone.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC);
+
         chrono::DateTime::from_timestamp(timestamp, 0)
-            .map(|time| time.format("%Y-%m-%d %H:%M UTC").to_string())
+            .map(|time| {
+                time.with_timezone(&timezone)
+                    .format("%Y-%m-%d %H:%M %:z")
+                    .to_string()
+            })
             .unwrap_or_else(|| "未知时间".to_owned())
     }
 
     #[cfg(not(any(feature = "web", feature = "server")))]
     {
+        let _ = timezone;
         timestamp.to_string()
     }
 }
@@ -367,4 +377,17 @@ async fn copy_image_link(
     _original_name: String,
 ) -> Result<(), String> {
     Err("复制功能只能在 Web 客户端使用".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_timestamp;
+
+    #[test]
+    fn formats_timestamp_in_configured_timezone() {
+        assert_eq!(
+            format_timestamp(0, "Asia/Shanghai"),
+            "1970-01-01 08:00 +08:00",
+        );
+    }
 }

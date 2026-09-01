@@ -9,42 +9,50 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE_NAME: lemonc7/lensy
+
 jobs:
   build:
-    name: Build amd64 image
+    name: Build and push amd64 image
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - uses: docker/setup-buildx-action@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Prepare image metadata
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Generate image metadata
         id: metadata
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="dev-${GITHUB_SHA::7}"
-          fi
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "archive=lensy-${version}-amd64.tar" >> "${GITHUB_OUTPUT}"
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{ version }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=dev-,format=short,enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=Lensy
+            org.opencontainers.image.description=Lensy image hosting service
 
-      - name: Build image
+      - name: Build and push image
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
-          tags: |
-            lemonc7/lensy:${{ steps.metadata.outputs.version }}
-            lemonc7/lensy:latest
-          outputs: type=docker,dest=${{ runner.temp }}/${{ steps.metadata.outputs.archive }}
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha,scope=lensy-amd64
           cache-to: type=gha,mode=max,scope=lensy-amd64
           provenance: false
-
-      - name: Upload image
-        uses: actions/upload-artifact@v7
-        with:
-          path: ${{ runner.temp }}/${{ steps.metadata.outputs.archive }}
-          archive: false

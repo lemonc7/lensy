@@ -1,6 +1,6 @@
 [package]
 name = "lensy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -30,11 +30,16 @@ sqlx = { version = "0.9", default-features = false, features = [
   "migrate",
 ], optional = true }
 tokio = { version = "1", features = [
+  "fs",
+  "io-util",
   "macros",
   "rt-multi-thread",
   "sync",
   "signal",
   "time",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+  "std",
 ], optional = true }
 tokio-util = { version = "0.7", features = ["io"], optional = true }
 
@@ -53,10 +58,9 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
   "fmt",
 ], optional = true }
 
-
 [features]
 default = []
-web = ["dioxus/web", "dep:chrono"]
+web = ["dioxus/web", "dep:chrono", "dep:chrono-tz"]
 server = [
   "dioxus/server",
   "dep:getrandom",
@@ -72,6 +76,7 @@ server = [
   "dep:tempfile",
   "dep:sqlx",
   "dep:tokio",
+  "dep:futures-util",
   "dep:tokio-util",
   "dep:tower",
   "dep:tower-http",

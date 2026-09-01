@@ -3,13 +3,14 @@ use dioxus::{
     logger::tracing,
     prelude::*,
     server::{
-        axum::{Extension, body::Bytes},
+        axum::Extension,
         http::{
             HeaderMap,
             header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
         },
     },
 };
+use futures_util::StreamExt;
 use tokio_util::io::ReaderStream;
 
 use crate::{
@@ -44,7 +45,7 @@ pub async fn get_image(
 pub async fn upload_image(
     Extension(state): Extension<AppState>,
     headers: HeaderMap,
-    bytes: Bytes,
+    body: Body,
 ) -> Result<Json<UploadImage>, StatusCode> {
     let filename = headers
         .get("x-filename")
@@ -53,9 +54,22 @@ pub async fn upload_image(
         .map_err(|_| StatusCode::BAD_REQUEST)?
         .unwrap_or_else(|| "upload".to_owned());
 
+    let mut upload =
+        super::upload::StreamingUpload::new(&state.service).map_err(StatusCode::from)?;
+    let mut stream = body.into_data_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            tracing::warn!(?error, "读取上传请求体失败");
+            StatusCode::BAD_REQUEST
+        })?;
+        upload.write(&chunk).await.map_err(StatusCode::from)?;
+    }
+
+    let (temp_file, source_len) = upload.finish().await.map_err(StatusCode::from)?;
     let result = state
         .service
-        .upload_image(&filename, bytes.to_vec())
+        .upload_image(&filename, temp_file, source_len)
         .await
         .map_err(StatusCode::from)?;
 
