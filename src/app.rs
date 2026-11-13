@@ -36,7 +36,7 @@ use topcoat::{
 use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
-    trace::TraceLayer,
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
 
 const GEIST: Font =
@@ -51,7 +51,12 @@ fn routes(state: Arc<AppState>) -> RouterBuilder {
     let http_layers = ServiceBuilder::new()
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(TraceLayer::new_for_http());
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO))
+                .on_request(())
+                .on_response(DefaultOnResponse::new().level(tracing::Level::INFO)),
+        );
     module_router!()
         .discover()
         .with(state)

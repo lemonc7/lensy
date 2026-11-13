@@ -9,6 +9,8 @@ pub mod images;
 pub mod server;
 pub mod theme;
 
+use std::io::IsTerminal;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let path = std::env::var("LENSY_CONFIG").unwrap_or_else(|_| "config/config.toml".to_owned());
@@ -34,7 +36,7 @@ fn init_tracing(timezone: chrono_tz::Tz) {
         .with_env_filter(filter)
         .with_target(false)
         .with_timer(ConfiguredTime(timezone))
-        .with_ansi(std::env::var_os("NO_COLOR").is_none())
+        .with_ansi(std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none())
         .init();
 }
 

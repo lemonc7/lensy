@@ -14,7 +14,7 @@ use topcoat::{
     view::{View, attributes, component, element_id, view},
 };
 
-/// One viewer per page. Navigation changes browser signals without fetching a shard.
+/// One viewer per loaded batch. Navigation changes browser signals without fetching a shard.
 #[component]
 pub async fn image_viewer(
     cx: &Cx,

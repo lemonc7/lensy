@@ -281,3 +281,51 @@ async fn rejects_untrusted_requests_and_enforces_upload_and_concurrency_limits(p
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[sqlx::test]
+async fn protects_lazy_image_batches_and_validates_the_cursor(pool: SqlitePool) {
+    use topcoat::runtime::{Arguments, Surrogated};
+
+    #[derive(serde::Serialize)]
+    struct ShardBody<A> {
+        args: A,
+    }
+
+    let (_directory, _state, router) = fixture(pool);
+    let cookie = login(&router).await;
+    for (timestamp, id, authenticated, expected) in [
+        (0i64, 0i64, false, StatusCode::UNAUTHORIZED),
+        (-1, 1, true, StatusCode::BAD_REQUEST),
+        (1, -1, true, StatusCode::BAD_REQUEST),
+        (1, 0, true, StatusCode::BAD_REQUEST),
+        (0, 0, true, StatusCode::OK),
+    ] {
+        let body = Json(ShardBody {
+            args: Arguments((false, timestamp, id, false).into_surrogate()),
+        })
+        .into_response(&Cx::new())
+        .unwrap()
+        .into_body();
+        let mut batch = request("POST", "/fragments/images/batch", body);
+        batch
+            .headers_mut()
+            .insert("origin", ORIGIN.parse().unwrap());
+        batch
+            .headers_mut()
+            .insert("content-type", "application/json".parse().unwrap());
+        if authenticated {
+            batch
+                .headers_mut()
+                .insert("cookie", cookie.parse().unwrap());
+        }
+        let response = router.handle(batch).await;
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::OK {
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let html = std::str::from_utf8(&bytes).unwrap();
+            assert!(html.contains("加载更多"));
+            assert!(!html.contains("回收站为空"));
+            assert!(!html.contains("<article"));
+        }
+    }
+}
