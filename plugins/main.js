@@ -144,7 +144,7 @@ class LensySettingTab extends PluginSettingTab {
 // 构造http请求，上传图片
 async function uploadImage(serverUrl, token, file) {
   const response = await requestUrl({
-    url: `${serverUrl}/api/v1/images`,
+    url: `${serverUrl}/api/upload`,
     method: "POST",
     contentType: file.type,
     headers: {

@@ -1,43 +1,32 @@
-FROM rust:1.95-slim-trixie AS builder
+FROM rust:1.100-slim-trixie AS builder
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        curl \
-        musl-tools \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends build-essential ca-certificates musl-tools \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add x86_64-unknown-linux-musl \
+    && cargo install topcoat-cli --version 0.12.1 --locked
 
-RUN rustup target add wasm32-unknown-unknown x86_64-unknown-linux-musl
-
-ENV CC_x86_64_unknown_linux_musl=musl-gcc
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
-
-RUN curl -L --proto '=https' --tlsv1.2 -sSf \
-        https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
-        | bash \
-    && cargo binstall dioxus-cli@0.7.10 -y --force
-
-ENV SQLX_OFFLINE=true
+ENV SQLX_OFFLINE=true \
+    CARGO_BUILD_TARGET=x86_64-unknown-linux-musl \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+    CC_x86_64_unknown_linux_musl=musl-gcc
 
 COPY . .
-RUN dx bundle --package lensy --release \
-    @client --platform web \
-    @server --platform server --target x86_64-unknown-linux-musl
+RUN topcoat asset bundle --release --out /app/bundled-assets
 
-
-FROM alpine:3.23 AS runtime
-
+FROM alpine:3.24 AS runtime
 WORKDIR /app
+RUN apk add --no-cache ca-certificates \
+    && addgroup -g 1000 lensy \
+    && adduser -D -H -u 1000 -G lensy lensy \
+    && mkdir -p /app/data /app/config \
+    && chown lensy:lensy /app/data /app/config
 
-ENV RUST_LOG=info,dioxus_server=warn,hyper_util=warn
-
-RUN addgroup -g 1000 lensy \
-    && adduser -D -H -u 1000 -G lensy lensy
-
-COPY --from=builder --chown=lensy:lensy /app/dist/ /app/
-
+ENV RUST_LOG=info,hyper_util=warn
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/lensy ./lensy
+COPY --from=builder /app/bundled-assets ./assets
 USER lensy
 EXPOSE 8080
-ENTRYPOINT ["/app/server"]
+ENTRYPOINT ["/app/lensy"]

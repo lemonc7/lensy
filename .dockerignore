@@ -1,14 +1,13 @@
-.vscode/
-config/
+.github/
+.git/
 data/
+config/
 plugins/
 target/
 
-.git
+.env
 .dockerignore
 .gitignore
-.env
-AGENTS.md
 config.example.toml
 docker-compose.yml
 Dockerfile
